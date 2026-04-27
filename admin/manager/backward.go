@@ -1,0 +1,381 @@
+package manager
+
+import "TengShe/share"
+
+const (
+	B_NEWBACKWARD = iota
+	B_GETNEWSEQ
+	B_ADDCONN
+	B_CHECKBACKWARD
+	B_GETDATACHAN
+	B_GETDATACHAN_WITHOUTUUID
+	B_CLOSETCP
+	B_GETBACKWARDINFO
+	B_GETSTOPRPORT
+	B_CLOSESINGLE
+	B_CLOSESINGLEALL
+	B_FORCESHUTDOWN
+)
+
+const (
+	backwardMessageChanSize = 512
+	backwardDataChanSize    = 256
+)
+
+// backwardManager owns admin-side backward service/session state.
+// Lifecycle: newBackward records one remote listen port for a node,
+// getNewSeq/addConn track per-connection sessions, and close paths tear down
+// one session, one port, all ports for a node, or all state during offline.
+type backwardManager struct {
+	backwardSeq      uint64
+	backwardSeqMap   map[uint64]*bwSeqRelationship   // map[seq](port+uuid), used to find a session owner by seq
+	backwardMap      map[string]map[string]*backward // map[uuid][rport]backward service and sessions
+	backwardReadyDel map[int]string                  // map[user option]rport, prepared while rendering close choices
+
+	BackwardMessChan chan interface{} // protocol messages dispatched by admin process
+	BackwardReady    chan bool        // startup acknowledgement from handler
+
+	TaskChan   chan *BackwardTask   // serialized manager commands
+	ResultChan chan *backwardResult // command responses
+}
+
+type BackwardTask struct {
+	Mode int
+	UUID string // node uuid
+	Seq  uint64 // seq
+
+	LPort  string
+	RPort  string
+	Choice int
+}
+
+type backwardResult struct {
+	OK bool
+
+	DataChan     chan []byte
+	BackwardSeq  uint64
+	BackwardInfo []*backwardInfo
+	RPort        string
+}
+
+type backward struct {
+	localPort string
+
+	backwardStatusMap map[uint64]*backwardStatus
+}
+
+type backwardStatus struct {
+	dataChan chan []byte
+}
+
+type bwSeqRelationship struct {
+	uuid  string
+	rPort string
+}
+
+type backwardInfo struct {
+	Seq       int
+	LPort     string
+	RPort     string
+	ActiveNum int
+}
+
+func newBackwardManager() *backwardManager {
+	manager := new(backwardManager)
+
+	manager.backwardMap = make(map[string]map[string]*backward)
+	manager.backwardSeqMap = make(map[uint64]*bwSeqRelationship)
+	manager.BackwardMessChan = make(chan interface{}, backwardMessageChanSize)
+
+	manager.BackwardReady = make(chan bool)
+	manager.TaskChan = make(chan *BackwardTask)
+	manager.ResultChan = make(chan *backwardResult)
+
+	return manager
+}
+
+func (manager *backwardManager) run() {
+	for {
+		task := <-manager.TaskChan
+
+		switch task.Mode {
+		case B_NEWBACKWARD:
+			manager.newBackward(task)
+		case B_GETNEWSEQ:
+			manager.getNewSeq(task)
+		case B_ADDCONN:
+			manager.addConn(task)
+		case B_CHECKBACKWARD:
+			manager.checkBackward(task)
+		case B_GETDATACHAN:
+			manager.getDataChan(task)
+		case B_GETDATACHAN_WITHOUTUUID:
+			manager.getDatachanWithoutUUID(task)
+		case B_CLOSETCP:
+			manager.closeTCP(task)
+		case B_GETBACKWARDINFO:
+			manager.getBackwardInfo(task)
+		case B_GETSTOPRPORT:
+			manager.getStopRPort(task)
+		case B_CLOSESINGLE:
+			manager.closeSingle(task)
+		case B_CLOSESINGLEALL:
+			manager.closeSingleAll(task)
+		case B_FORCESHUTDOWN:
+			manager.forceShutdown(task)
+		}
+	}
+}
+
+// register a new backward
+// 2022.7.19 Fix nil pointer bug,thx to @zyylhn
+func (manager *backwardManager) newBackward(task *BackwardTask) {
+	if _, ok := manager.backwardMap[task.UUID]; !ok {
+		manager.backwardMap[task.UUID] = make(map[string]*backward)
+	}
+
+	manager.backwardMap[task.UUID][task.RPort] = new(backward)
+	manager.backwardMap[task.UUID][task.RPort].localPort = task.LPort
+	manager.backwardMap[task.UUID][task.RPort].backwardStatusMap = make(map[uint64]*backwardStatus)
+
+	manager.ResultChan <- &backwardResult{OK: true}
+}
+
+func (manager *backwardManager) getNewSeq(task *BackwardTask) {
+	manager.backwardSeqMap[manager.backwardSeq] = &bwSeqRelationship{rPort: task.RPort, uuid: task.UUID}
+	manager.ResultChan <- &backwardResult{BackwardSeq: manager.backwardSeq}
+	manager.backwardSeq++
+}
+
+func (manager *backwardManager) addConn(task *BackwardTask) {
+	if _, ok := manager.backwardSeqMap[task.Seq]; !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	nodeBackward, ok := manager.backwardMap[task.UUID]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+	portBackward, ok := nodeBackward[task.RPort]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	portBackward.backwardStatusMap[task.Seq] = new(backwardStatus)
+	portBackward.backwardStatusMap[task.Seq].dataChan = make(chan []byte, backwardDataChanSize)
+	manager.ResultChan <- &backwardResult{OK: true}
+}
+
+func (manager *backwardManager) checkBackward(task *BackwardTask) {
+	if _, ok := manager.backwardSeqMap[task.Seq]; !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	nodeBackward, ok := manager.backwardMap[task.UUID]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+	portBackward, ok := nodeBackward[task.RPort]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	if _, ok := portBackward.backwardStatusMap[task.Seq]; ok {
+		manager.ResultChan <- &backwardResult{OK: true}
+	} else {
+		manager.ResultChan <- &backwardResult{OK: false}
+	}
+
+}
+
+func (manager *backwardManager) getDataChan(task *BackwardTask) {
+	if _, ok := manager.backwardSeqMap[task.Seq]; !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	nodeBackward, ok := manager.backwardMap[task.UUID]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+	portBackward, ok := nodeBackward[task.RPort]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	if status, ok := portBackward.backwardStatusMap[task.Seq]; ok && status != nil {
+		manager.ResultChan <- &backwardResult{
+			OK:       true,
+			DataChan: status.dataChan,
+		}
+	} else {
+		manager.ResultChan <- &backwardResult{OK: false}
+	}
+
+}
+
+func (manager *backwardManager) getDatachanWithoutUUID(task *BackwardTask) {
+	if _, ok := manager.backwardSeqMap[task.Seq]; !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	uuid := manager.backwardSeqMap[task.Seq].uuid
+	rPort := manager.backwardSeqMap[task.Seq].rPort
+
+	nodeBackward, ok := manager.backwardMap[uuid]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+	portBackward, ok := nodeBackward[rPort]
+	if !ok {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+	status, ok := portBackward.backwardStatusMap[task.Seq]
+	if !ok || status == nil {
+		manager.ResultChan <- &backwardResult{OK: false}
+		return
+	}
+
+	manager.ResultChan <- &backwardResult{
+		OK:       true,
+		DataChan: status.dataChan,
+	}
+}
+
+func (manager *backwardManager) closeTCP(task *BackwardTask) {
+	if _, ok := manager.backwardSeqMap[task.Seq]; !ok {
+		return
+	}
+
+	uuid := manager.backwardSeqMap[task.Seq].uuid
+	rPort := manager.backwardSeqMap[task.Seq].rPort
+
+	nodeBackward, ok := manager.backwardMap[uuid]
+	if !ok {
+		delete(manager.backwardSeqMap, task.Seq)
+		return
+	}
+	portBackward, ok := nodeBackward[rPort]
+	if !ok {
+		delete(manager.backwardSeqMap, task.Seq)
+		return
+	}
+	status, ok := portBackward.backwardStatusMap[task.Seq]
+	if !ok {
+		delete(manager.backwardSeqMap, task.Seq)
+		return
+	}
+
+	share.CloseBytesChanQuietly(status.dataChan)
+
+	delete(portBackward.backwardStatusMap, task.Seq)
+	delete(manager.backwardSeqMap, task.Seq)
+}
+
+func (manager *backwardManager) getBackwardInfo(task *BackwardTask) {
+	manager.backwardReadyDel = make(map[int]string)
+
+	var result []*backwardInfo
+	seq := 1
+
+	if _, ok := manager.backwardMap[task.UUID]; ok {
+		for port, info := range manager.backwardMap[task.UUID] {
+			manager.backwardReadyDel[seq] = port
+			result = append(result, &backwardInfo{Seq: seq, LPort: info.localPort, RPort: port, ActiveNum: len(info.backwardStatusMap)})
+			seq++
+		}
+		manager.ResultChan <- &backwardResult{
+			OK:           true,
+			BackwardInfo: result,
+		}
+	} else {
+		manager.ResultChan <- &backwardResult{
+			OK:           false,
+			BackwardInfo: result,
+		}
+	}
+}
+
+func (manager *backwardManager) getStopRPort(task *BackwardTask) {
+	manager.ResultChan <- &backwardResult{RPort: manager.backwardReadyDel[task.Choice]}
+}
+
+func (manager *backwardManager) closeSingle(task *BackwardTask) {
+	rPort := task.RPort
+
+	if nodeBackward, ok := manager.backwardMap[task.UUID]; ok {
+		if portBackward, ok := nodeBackward[rPort]; ok {
+			for seq, status := range portBackward.backwardStatusMap {
+				share.CloseBytesChanQuietly(status.dataChan)
+				delete(portBackward.backwardStatusMap, seq)
+			}
+		}
+	}
+
+	delete(manager.backwardMap[task.UUID], rPort)
+
+	for seq, relationship := range manager.backwardSeqMap {
+		if relationship.uuid == task.UUID && relationship.rPort == rPort {
+			delete(manager.backwardSeqMap, seq)
+		}
+	}
+
+	if len(manager.backwardMap[task.UUID]) == 0 {
+		delete(manager.backwardMap, task.UUID)
+	}
+
+	manager.ResultChan <- &backwardResult{OK: true}
+}
+
+func (manager *backwardManager) closeSingleAll(task *BackwardTask) {
+	for rPort, portBackward := range manager.backwardMap[task.UUID] {
+		for seq, status := range portBackward.backwardStatusMap {
+			share.CloseBytesChanQuietly(status.dataChan)
+			delete(portBackward.backwardStatusMap, seq)
+		}
+		delete(manager.backwardMap[task.UUID], rPort)
+	}
+
+	for seq, relationship := range manager.backwardSeqMap {
+		if relationship.uuid == task.UUID {
+			delete(manager.backwardSeqMap, seq)
+		}
+	}
+
+	delete(manager.backwardMap, task.UUID)
+
+	manager.ResultChan <- &backwardResult{OK: true}
+}
+
+func (manager *backwardManager) forceShutdown(task *BackwardTask) {
+	if _, ok := manager.backwardMap[task.UUID]; ok {
+		for rPort := range manager.backwardMap[task.UUID] {
+			for seq, status := range manager.backwardMap[task.UUID][rPort].backwardStatusMap {
+				share.CloseBytesChanQuietly(status.dataChan)
+				delete(manager.backwardMap[task.UUID][rPort].backwardStatusMap, seq)
+			}
+			delete(manager.backwardMap[task.UUID], rPort)
+		}
+
+		for seq, relationship := range manager.backwardSeqMap {
+			if relationship.uuid == task.UUID {
+				delete(manager.backwardSeqMap, seq)
+			}
+		}
+
+		delete(manager.backwardMap, task.UUID)
+	}
+
+	manager.ResultChan <- &backwardResult{OK: true}
+}
