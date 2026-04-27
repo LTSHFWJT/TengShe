@@ -17,6 +17,8 @@ type AdminConn struct {
 	IDNum int
 }
 
+type DialFunc func() (net.Conn, error)
+
 func dispatchUUID(conn net.Conn, secret string) string {
 	var sMessage protocol.Message
 
@@ -42,6 +44,15 @@ func dispatchUUID(conn net.Conn, secret string) string {
 }
 
 func NormalActive(userOptions *Options, topo *topology.Topology, proxy share.Proxy) *AdminConn {
+	return NormalActiveWithDial(userOptions, topo, func() (net.Conn, error) {
+		if proxy == nil {
+			return net.Dial("tcp", userOptions.Connect)
+		}
+		return proxy.Dial()
+	})
+}
+
+func NormalActiveWithDial(userOptions *Options, topo *topology.Topology, dial DialFunc) *AdminConn {
 
 	var sMessage, rMessage protocol.Message
 
@@ -68,11 +79,7 @@ func NormalActive(userOptions *Options, topo *topology.Topology, proxy share.Pro
 			err  error
 		)
 
-		if proxy == nil {
-			conn, err = net.Dial("tcp", userOptions.Connect)
-		} else {
-			conn, err = proxy.Dial()
-		}
+		conn, err = dial()
 
 		if err != nil {
 			printer.Fail("[*] Error occurred: %s", err.Error())
@@ -143,6 +150,10 @@ func NormalPassive(userOptions *Options, topo *topology.Topology, accepted chan<
 		os.Exit(0)
 	}
 
+	return NormalPassiveWithListener(userOptions, topo, accepted, listener)
+}
+
+func NormalPassiveWithListener(userOptions *Options, topo *topology.Topology, accepted chan<- *AdminConn, listener net.Listener) *AdminConn {
 	first := acceptPassiveConn(listener, userOptions, topo)
 	go acceptPassiveLoop(listener, userOptions, topo, accepted)
 	return first

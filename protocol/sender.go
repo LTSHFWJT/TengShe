@@ -165,16 +165,16 @@ func (sender *Sender) run() {
 	for {
 		select {
 		case item := <-sender.control:
-			item.done <- writeFull(sender.conn, item.data)
+			item.done <- writeFullLane(sender.conn, ControlLane, item.data)
 			continue
 		default:
 		}
 
 		select {
 		case item := <-sender.control:
-			item.done <- writeFull(sender.conn, item.data)
+			item.done <- writeFullLane(sender.conn, ControlLane, item.data)
 		case item := <-sender.data:
-			item.done <- writeFull(sender.conn, item.data)
+			item.done <- writeFullLane(sender.conn, DataLane, item.data)
 		case <-sender.closed:
 			return
 		}
@@ -230,6 +230,41 @@ func IsDataMessageType(messageType uint16) bool {
 }
 
 func writeFull(conn net.Conn, data []byte) error {
+	return writeFullLane(conn, ControlLane, data)
+}
+
+type streamWriter interface {
+	WriteWithStream(streamID uint32, p []byte) (int, error)
+}
+
+func writeFullLane(conn net.Conn, lane Lane, data []byte) error {
+	if writer, ok := conn.(streamWriter); ok {
+		streamID := uint32(1)
+		if lane == DataLane {
+			streamID = 2
+		}
+		return writeFullWithStream(writer, streamID, data)
+	}
+	return writeFullPlain(conn, data)
+}
+
+func writeFullWithStream(conn streamWriter, streamID uint32, data []byte) error {
+	for len(data) > 0 {
+		n, err := conn.WriteWithStream(streamID, data)
+		if n > 0 {
+			data = data[n:]
+		}
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+	}
+	return nil
+}
+
+func writeFullPlain(conn net.Conn, data []byte) error {
 	for len(data) > 0 {
 		n, err := conn.Write(data)
 		if n > 0 {

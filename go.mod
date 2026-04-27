@@ -10,6 +10,7 @@ require (
 	github.com/libp2p/go-reuseport v0.4.0
 	github.com/nsf/termbox-go v1.1.1
 	golang.org/x/crypto v0.50.0
+	golang.org/x/net v0.52.0
 	golang.org/x/text v0.36.0
 )
 

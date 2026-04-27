@@ -8,6 +8,7 @@ import (
 	"TengShe/admin/topology"
 	"TengShe/protocol"
 	"TengShe/share"
+	"TengShe/share/transport/icmptransport"
 )
 
 type AdminSession struct {
@@ -27,6 +28,31 @@ func ConnectAdmin(options *admininitial.Options) *AdminSession {
 
 	var root *admininitial.AdminConn
 	accepted := make(chan *admininitial.AdminConn, 16)
+
+	if options.Transport == icmptransport.TransportName {
+		icmpConfig := icmptransport.DefaultConfigFromEnv()
+		switch options.Mode {
+		case admininitial.NORMAL_ACTIVE:
+			dialer := &icmptransport.Dialer{Peer: options.Connect, Bind: options.Listen, Config: icmpConfig}
+			root = admininitial.NormalActiveWithDial(options, topo, dialer.Dial)
+		case admininitial.NORMAL_PASSIVE:
+			listener, err := icmptransport.ListenConfig(options.Listen, icmpConfig)
+			if err != nil {
+				printer.Fail("[*] Error occurred: %s", err.Error())
+				os.Exit(0)
+			}
+			root = admininitial.NormalPassiveWithListener(options, topo, accepted, listener)
+		default:
+			printer.Fail("[*] Unsupported ICMP admin mode")
+			os.Exit(0)
+		}
+		return &AdminSession{
+			Topology: topo,
+			Root:     root,
+			Accepted: accepted,
+		}
+	}
+
 	switch options.Mode {
 	case admininitial.NORMAL_ACTIVE:
 		root = admininitial.NormalActive(options, topo, nil)

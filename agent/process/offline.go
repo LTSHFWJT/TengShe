@@ -13,6 +13,7 @@ import (
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
 	"TengShe/share"
+	"TengShe/share/transport/icmptransport"
 	"TengShe/utils"
 
 	reuseport "github.com/libp2p/go-reuseport"
@@ -53,12 +54,19 @@ func upstreamOffline(mgr *manager.Manager, options *initial.Options) {
 }
 
 func normalPassiveReconn(options *initial.Options) net.Conn {
-	listenAddr, _, err := utils.CheckIPPort(options.Listen)
-	if err != nil {
-		log.Fatalf("[*] Error occurred: %s", err.Error())
+	var (
+		listener net.Listener
+		err      error
+	)
+	if options.Transport == icmptransport.TransportName {
+		listener, err = icmptransport.ListenConfig(options.Listen, icmptransport.DefaultConfigFromEnv())
+	} else {
+		listenAddr, _, err := utils.CheckIPPort(options.Listen)
+		if err != nil {
+			log.Fatalf("[*] Error occurred: %s", err.Error())
+		}
+		listener, err = net.Listen("tcp", listenAddr)
 	}
-
-	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("[*] Error occurred: %s", err.Error())
 	}
@@ -242,7 +250,9 @@ func normalReconnActiveReconn(options *initial.Options, proxy share.Proxy) net.C
 			err  error
 		)
 
-		if proxy == nil {
+		if proxy == nil && options.Transport == icmptransport.TransportName {
+			conn, err = icmptransport.DialConfig(options.Connect, options.Listen, icmptransport.DefaultConfigFromEnv())
+		} else if proxy == nil {
 			conn, err = net.Dial("tcp", options.Connect)
 		} else {
 			conn, err = proxy.Dial()

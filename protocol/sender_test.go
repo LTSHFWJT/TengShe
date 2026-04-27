@@ -34,6 +34,24 @@ func (conn *recordingConn) Bytes() []byte {
 	return append([]byte(nil), conn.buf.Bytes()...)
 }
 
+type recordingStreamConn struct {
+	recordingConn
+	streams []uint32
+}
+
+func (conn *recordingStreamConn) WriteWithStream(streamID uint32, data []byte) (int, error) {
+	conn.mu.Lock()
+	conn.streams = append(conn.streams, streamID)
+	conn.mu.Unlock()
+	return conn.Write(data)
+}
+
+func (conn *recordingStreamConn) Streams() []uint32 {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return append([]uint32(nil), conn.streams...)
+}
+
 type dummyAddr string
 
 func (addr dummyAddr) Network() string { return string(addr) }
@@ -118,5 +136,29 @@ func TestLaneForMessageType(t *testing.T) {
 		if got := LaneForMessageType(tc.messageType); got != tc.want {
 			t.Fatalf("lane for message type %d = %d, want %d", tc.messageType, got, tc.want)
 		}
+	}
+}
+
+func TestSenderMapsLaneToStreamWriter(t *testing.T) {
+	conn := &recordingStreamConn{}
+	sender := NewSender(conn)
+	defer sender.Close()
+
+	if err := sender.SendFrame(ControlLane, []byte("control")); err != nil {
+		t.Fatalf("control SendFrame error: %v", err)
+	}
+	if err := sender.SendFrame(DataLane, []byte("data")); err != nil {
+		t.Fatalf("data SendFrame error: %v", err)
+	}
+
+	streams := conn.Streams()
+	if len(streams) != 2 {
+		t.Fatalf("streams len = %d, want 2", len(streams))
+	}
+	if streams[0] != 1 {
+		t.Fatalf("control stream = %d, want 1", streams[0])
+	}
+	if streams[1] != 2 {
+		t.Fatalf("data stream = %d, want 2", streams[1])
 	}
 }

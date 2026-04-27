@@ -24,6 +24,8 @@ const CHAIN_NAME = "TENGSHE"
 var START_FORWARDING string
 var STOP_FORWARDING string
 
+type DialFunc func() (net.Conn, error)
+
 func achieveUUID(conn net.Conn, secret string) (uuid string) {
 	rMessage := protocol.NewUpMsg(conn, secret, protocol.TEMP_UUID)
 	fHeader, fMessage, err := protocol.DestructMessage(rMessage)
@@ -42,6 +44,15 @@ func achieveUUID(conn net.Conn, secret string) (uuid string) {
 }
 
 func NormalActive(userOptions *Options, proxy share.Proxy) (net.Conn, string) {
+	return NormalActiveWithDial(userOptions, func() (net.Conn, error) {
+		if proxy == nil {
+			return net.Dial("tcp", userOptions.Connect)
+		}
+		return proxy.Dial()
+	})
+}
+
+func NormalActiveWithDial(userOptions *Options, dial DialFunc) (net.Conn, string) {
 	var sMessage, rMessage protocol.Message
 	// just say hi!
 	hiMess := &protocol.HIMess{
@@ -67,11 +78,7 @@ func NormalActive(userOptions *Options, proxy share.Proxy) (net.Conn, string) {
 			err  error
 		)
 
-		if proxy == nil {
-			conn, err = net.Dial("tcp", userOptions.Connect)
-		} else {
-			conn, err = proxy.Dial()
-		}
+		conn, err = dial()
 
 		if err != nil {
 			log.Fatalf("[*] Error occurred: %s", err.Error())
@@ -130,6 +137,10 @@ func NormalPassive(userOptions *Options) (net.Conn, string) {
 		share.CloseQuietly(listener)
 	}()
 
+	return NormalPassiveWithListener(userOptions, listener)
+}
+
+func NormalPassiveWithListener(userOptions *Options, listener net.Listener) (net.Conn, string) {
 	var sMessage, rMessage protocol.Message
 
 	hiMess := &protocol.HIMess{
