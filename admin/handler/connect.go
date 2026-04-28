@@ -5,11 +5,15 @@ import (
 	"TengShe/admin/printer"
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
-	"TengShe/utils"
+	"TengShe/share/transport/stream"
 )
 
-func LetConnect(mgr *manager.Manager, route, uuid, addr string) error {
-	normalAddr, _, err := utils.CheckIPPort(addr)
+func LetConnect(mgr *manager.Manager, route, uuid, addr, protocolName string) error {
+	protocolName, err := stream.NormalizeProtocol(protocolName)
+	if err != nil {
+		return err
+	}
+	normalAddr, err := stream.NormalizeDialAddress(protocolName, addr)
 	if err != nil {
 		return err
 	}
@@ -25,15 +29,17 @@ func LetConnect(mgr *manager.Manager, route, uuid, addr string) error {
 	}
 
 	connMess := &protocol.ConnectStart{
-		AddrLen: uint16(len([]byte(normalAddr))),
-		Addr:    normalAddr,
+		ProtocolLen: uint16(len(protocolName)),
+		Protocol:    protocolName,
+		AddrLen:     uint16(len([]byte(normalAddr))),
+		Addr:        normalAddr,
 	}
 
 	protocol.ConstructMessage(sMessage, header, connMess, false)
 	sMessage.SendMessage()
 
 	if ok := <-mgr.ConnectManager.ConnectReady; !ok {
-		printer.Fail("\r\n[*] Cannot connect to node %s", addr)
+		printer.Fail("\r\n[*] Cannot connect to node %s via %s", addr, protocolName)
 	}
 
 	return nil

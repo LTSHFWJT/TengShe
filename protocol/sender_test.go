@@ -84,6 +84,36 @@ func TestSenderQueuesRegisteredConnectionWrites(t *testing.T) {
 	}
 }
 
+func TestRegisteredSendMessageUsesStreamWriter(t *testing.T) {
+	oldUpstream, oldDownstream := Upstream, Downstream
+	defer func() {
+		Upstream, Downstream = oldUpstream, oldDownstream
+	}()
+	SetUpDownStream("raw", "raw")
+
+	conn := &recordingStreamConn{}
+	sender := NewSender(conn)
+	defer sender.Close()
+
+	message := NewUpMsg(conn, "secret", "NODE000001")
+	header := &Header{
+		Sender:      "NODE000001",
+		Accepter:    ADMIN_UUID,
+		MessageType: SOCKSTCPDATA,
+		RouteLen:    uint32(len(TEMP_ROUTE)),
+		Route:       TEMP_ROUTE,
+	}
+	SendMessage(message, header, &SocksTCPData{Seq: 1, DataLen: 4, Data: []byte("data")}, false)
+
+	streams := conn.Streams()
+	if len(streams) != 1 {
+		t.Fatalf("streams len = %d, want 1", len(streams))
+	}
+	if streams[0] != 2 {
+		t.Fatalf("data message stream = %d, want 2", streams[0])
+	}
+}
+
 func TestSenderCloseRejectsFurtherWrites(t *testing.T) {
 	conn := &recordingConn{}
 	sender := NewSender(conn)

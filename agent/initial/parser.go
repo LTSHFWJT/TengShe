@@ -3,10 +3,13 @@ package initial
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"os"
 	"strings"
+
+	"TengShe/share/transport/stream"
 )
 
 const (
@@ -47,26 +50,61 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	options := new(Options)
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
-	flagSet.StringVar(&options.Secret, "s", "", "")
-	flagSet.StringVar(&options.Transport, "transport", "tcp", "")
-	flagSet.StringVar(&options.Listen, "l", "", "")
-	flagSet.Uint64Var(&options.Reconnect, "reconnect", 0, "")
-	flagSet.StringVar(&options.Connect, "c", "", "")
-	flagSet.StringVar(&options.ReuseHost, "rehost", "", "")
-	flagSet.StringVar(&options.ReusePort, "report", "", "")
-	flagSet.StringVar(&options.Socks5Proxy, "socks5-proxy", "", "")
-	flagSet.StringVar(&options.Socks5ProxyU, "socks5-proxyu", "", "")
-	flagSet.StringVar(&options.Socks5ProxyP, "socks5-proxyp", "", "")
-	flagSet.StringVar(&options.HttpProxy, "http-proxy", "", "")
-	flagSet.StringVar(&options.Upstream, "up", "raw", "")
-	flagSet.StringVar(&options.Downstream, "down", "raw", "")
-	flagSet.StringVar(&options.Charset, "cs", "utf-8", "")
-	flagSet.StringVar(&options.Domain, "domain", "", "")
-	flagSet.BoolVar(&options.TlsEnable, "tls-enable", false, "")
+	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp or icmp")
+	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
+	flagSet.Uint64Var(&options.Reconnect, "reconnect", 0, "Reconnect interval in seconds")
+	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
+	flagSet.StringVar(&options.ReuseHost, "rehost", "", "The host address you want to reuse")
+	flagSet.StringVar(&options.ReusePort, "report", "", "The port you want to reuse")
+	flagSet.StringVar(&options.Socks5Proxy, "socks5-proxy", "", "The socks5 server ip:port you want to use")
+	flagSet.StringVar(&options.Socks5ProxyU, "socks5-proxyu", "", "socks5 username")
+	flagSet.StringVar(&options.Socks5ProxyP, "socks5-proxyp", "", "socks5 password")
+	flagSet.StringVar(&options.HttpProxy, "http-proxy", "", "The http proxy server ip:port you want to use")
+	flagSet.StringVar(&options.Upstream, "up", "raw", "Upstream data type you want to use")
+	flagSet.StringVar(&options.Downstream, "down", "raw", "Downstream data type you want to use")
+	flagSet.StringVar(&options.Charset, "cs", "utf-8", "Charset: utf-8 or gbk")
+	flagSet.StringVar(&options.Domain, "domain", "", "Domain name for TLS SNI/WS")
+	flagSet.BoolVar(&options.TlsEnable, "tls-enable", false, "Encrypt connection by TLS")
 
-	flagSet.Usage = func() {}
+	flagSet.Usage = func() {
+		newUsage(flagSet)
+	}
 
 	return flagSet, options
+}
+
+func newUsage(flagSet *flag.FlagSet) {
+	fmt.Fprintf(os.Stderr, `
+Usages:
+	>> ./tengshe_agent -l <port> -s [secret]
+	>> ./tengshe_agent -c <ip:port> -s [secret]
+	>> ./tengshe_agent -c <ip:port> -s [secret] --reconnect <seconds>
+	>> ./tengshe_agent -c <ip:port> -s [secret] --socks5-proxy <ip:port> --socks5-proxyu [username] --socks5-proxyp [password]
+	>> ./tengshe_agent -p icmp -l <local-ip> -s [secret]
+	>> ./tengshe_agent -p icmp -c <peer-ip> -s [secret]
+`)
+	flagSet.PrintDefaults()
+}
+
+func normalizeProtocolFlagArgs(args []string) []string {
+	normalized := make([]string, len(args))
+	copy(normalized, args)
+	for i, arg := range normalized {
+		switch arg {
+		case "-transport", "--transport":
+			normalized[i] = "-p"
+		default:
+			if value, ok := strings.CutPrefix(arg, "-transport="); ok {
+				normalized[i] = "-p=" + value
+				continue
+			}
+			if value, ok := strings.CutPrefix(arg, "--transport="); ok {
+				normalized[i] = "-p=" + value
+			}
+		}
+	}
+	return normalized
 }
 
 // ParseOptions Parsing user's options
@@ -74,17 +112,19 @@ func ParseOptions() *Options {
 	flagSet, options := newFlagSet()
 	args = options
 
-	flagSet.Parse(os.Args[1:])
+	flagSet.Parse(normalizeProtocolFlagArgs(os.Args[1:]))
 
-	args.Transport = strings.ToLower(strings.TrimSpace(args.Transport))
-	if args.Transport == "" {
-		args.Transport = "tcp"
+	var err error
+	args.Transport, err = stream.NormalizeProtocol(args.Transport)
+	if err != nil {
+		flagSet.Usage()
+		log.Fatalf("[*] Options err: %s\n", err.Error())
 	}
-	if args.Transport == "icmp" && args.Listen == "" && args.Connect == "" && args.Reconnect == 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" {
+	if args.Transport == stream.ProtocolICMP && args.Listen == "" && args.Connect == "" && args.Reconnect == 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" {
 		args.Listen = "0.0.0.0"
 	}
 
-	if args.Transport == "icmp" {
+	if args.Transport != stream.ProtocolTCP {
 		if args.Connect != "" && args.Reconnect == 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" {
 			args.Mode = NORMAL_ACTIVE
 		} else if args.Connect != "" && args.Reconnect != 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" {
@@ -92,7 +132,8 @@ func ParseOptions() *Options {
 		} else if args.Connect == "" && args.Listen != "" && args.Reconnect == 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" {
 			args.Mode = NORMAL_PASSIVE
 		} else {
-			os.Exit(1)
+			flagSet.Usage()
+			os.Exit(0)
 		}
 	} else if args.Listen != "" && args.Connect == "" && args.Reconnect == 0 && args.ReuseHost == "" && args.ReusePort == "" && args.Socks5Proxy == "" && args.Socks5ProxyU == "" && args.Socks5ProxyP == "" && args.HttpProxy == "" { // ./tengshe_agent -l <port> -s [secret]
 		args.Mode = NORMAL_PASSIVE
@@ -119,10 +160,12 @@ func ParseOptions() *Options {
 		args.Mode = HTTP_PROXY_RECONNECT_ACTIVE
 		log.Printf("[*] Starting agent node actively.Connecting to %s via http proxy %s.Reconnecting every %d seconds\n", args.Connect, args.HttpProxy, args.Reconnect)
 	} else {
-		os.Exit(1)
+		flagSet.Usage()
+		os.Exit(0)
 	}
 
 	if args.Charset != "utf-8" && args.Charset != "gbk" {
+		flagSet.Usage()
 		log.Fatalf("[*] Charset must be set as 'utf-8'(default) or 'gbk'")
 	}
 
@@ -132,6 +175,7 @@ func ParseOptions() *Options {
 	}
 
 	if err := checkOptions(args); err != nil {
+		flagSet.Usage()
 		log.Fatalf("[*] Options err: %s\n", err.Error())
 	}
 
@@ -153,36 +197,36 @@ func ParseOptions() *Options {
 
 func checkOptions(option *Options) error {
 	var err error
-
-	if option.Transport != "tcp" && option.Transport != "icmp" {
-		return errors.New("transport must be tcp or icmp")
+	option.Transport, err = stream.NormalizeProtocol(option.Transport)
+	if err != nil {
+		return err
 	}
 
-	if option.Transport == "icmp" {
+	if option.Transport != stream.ProtocolTCP {
 		if option.TlsEnable {
-			return errors.New("tls-enable is not supported with ICMP transport in the first implementation")
+			return fmt.Errorf("tls-enable is not supported with %s protocol in the first implementation", option.Transport)
 		}
 		if option.Socks5Proxy != "" || option.HttpProxy != "" || option.Socks5ProxyU != "" || option.Socks5ProxyP != "" {
-			return errors.New("proxy active mode is not supported with ICMP transport")
+			return fmt.Errorf("proxy active mode is not supported with %s protocol", option.Transport)
 		}
 		if option.ReuseHost != "" || option.ReusePort != "" {
-			return errors.New("port reuse mode is not supported with ICMP transport")
+			return fmt.Errorf("port reuse mode is not supported with %s protocol", option.Transport)
 		}
 		if option.Upstream != "" && option.Upstream != "raw" {
-			return errors.New("ICMP transport currently supports raw upstream only")
+			return fmt.Errorf("%s protocol currently supports raw upstream only", option.Transport)
 		}
 		if option.Downstream != "" && option.Downstream != "raw" {
-			return errors.New("ICMP transport currently supports raw downstream only")
+			return fmt.Errorf("%s protocol currently supports raw downstream only", option.Transport)
 		}
 		if option.Listen == "" {
 			option.Listen = "0.0.0.0"
 		}
-		option.Listen, err = normalizeICMPListen(option.Listen)
+		option.Listen, err = stream.NormalizeListenAddress(option.Transport, option.Listen)
 		if err != nil {
 			return err
 		}
 		if option.Connect != "" {
-			option.Connect, err = normalizeICMPPeer(option.Connect)
+			option.Connect, err = stream.NormalizeDialAddress(option.Transport, option.Connect)
 			return err
 		}
 		return nil

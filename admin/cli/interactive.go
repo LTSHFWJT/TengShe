@@ -588,7 +588,22 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			option := console.pretreatInput()
 			if option == "1" {
 				listen.Method = handler.NORMAL
-				console.status = "[*] Please input the [ip:]<port> : "
+				console.status = "[*] Please choose protocol(1. TCP/2. ICMP, default TCP): "
+				console.ready <- true
+				option = console.pretreatInput()
+				protocolName, ok := parseProtocolChoice(option)
+				if !ok {
+					printer.Fail("\r\n[*] Please input 1/2 or tcp/icmp!")
+					console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
+					console.ready <- true
+					continue
+				}
+				listen.Protocol = protocolName
+				if protocolName == "icmp" {
+					console.status = "[*] Please input the local ICMP bind IP(default 0.0.0.0): "
+				} else {
+					console.status = "[*] Please input the [ip:]<port> : "
+				}
 				console.ready <- true
 				option = console.pretreatInput()
 				listen.Addr = option
@@ -618,13 +633,21 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 				return
 			}
 
-			if console.expectParams(fCommand, 2, NODE, 0) {
+			if console.expectParams(fCommand, []int{2, 3, 4}, NODE, 0) {
+				break
+			}
+
+			protocolName, ok := parseConnectProtocol(fCommand)
+			if !ok {
+				printer.Fail("\r\n[*] Format error!\r\n")
+				ShowNodeHelp()
+				console.ready <- true
 				break
 			}
 
 			printer.Warning("\r\n[*] Waiting for response......")
 
-			err := handler.LetConnect(console.mgr, route, uuid, fCommand[1])
+			err := handler.LetConnect(console.mgr, route, uuid, fCommand[1], protocolName)
 			if err != nil {
 				printer.Fail("[*] Error: %s\n", err.Error())
 			}

@@ -1,24 +1,27 @@
 package handler
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"net"
-	"time"
 
 	"TengShe/agent/manager"
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
 	"TengShe/share"
 	"TengShe/share/transport"
+	"TengShe/share/transport/stream"
 )
 
 type Connect struct {
-	Addr string
+	Protocol string
+	Addr     string
 }
 
-func newConnect(addr string) *Connect {
+func newConnect(protocolName string, addr string) *Connect {
 	connect := new(Connect)
+	connect.Protocol = protocolName
 	connect.Addr = addr
 	return connect
 }
@@ -74,13 +77,18 @@ func (connect *Connect) start(mgr *manager.Manager) {
 		}
 	}()
 
-	conn, err = net.DialTimeout("tcp", connect.Addr, 10*time.Second)
+	transportSpec, err := stream.Get(connect.Protocol)
+	if err != nil {
+		return
+	}
+
+	conn, err = transportSpec.Dial(context.Background(), connect.Addr, "")
 
 	if err != nil {
 		return
 	}
 
-	if tsruntime.TLSEnabled() {
+	if tsruntime.TLSEnabled() && transportSpec.SupportsTLS() {
 		var tlsConfig *tls.Config
 		// Set domain as null since we are in the intranet
 		tlsConfig, err = transport.NewClientTLSConfig("")
@@ -207,7 +215,11 @@ func DispatchConnectMess(mgr *manager.Manager) {
 
 		switch mess := message.(type) {
 		case *protocol.ConnectStart:
-			connect := newConnect(mess.Addr)
+			protocolName, err := stream.NormalizeProtocol(mess.Protocol)
+			if err != nil {
+				protocolName = stream.ProtocolTCP
+			}
+			connect := newConnect(protocolName, mess.Addr)
 			go connect.start(mgr)
 		}
 	}

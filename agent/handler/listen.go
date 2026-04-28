@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"TengShe/protocol"
 	"TengShe/share"
 	"TengShe/share/transport"
+	"TengShe/share/transport/stream"
 
 	reuseport "github.com/libp2p/go-reuseport"
 )
@@ -25,13 +27,15 @@ const (
 )
 
 type Listen struct {
-	method int
-	addr   string
+	method   int
+	protocol string
+	addr     string
 }
 
-func newListen(method int, addr string) *Listen {
+func newListen(method int, protocolName string, addr string) *Listen {
 	listen := new(Listen)
 	listen.method = method
+	listen.protocol = protocolName
 	listen.addr = addr
 	return listen
 }
@@ -95,7 +99,14 @@ func (listen *Listen) normalListen(mgr *manager.Manager, options *initial.Option
 		OK: 1,
 	}
 
-	listener, err := net.Listen("tcp", listen.addr)
+	transportSpec, err := stream.Get(listen.protocol)
+	if err != nil {
+		protocol.ConstructMessage(sUMessage, resHeader, failMess, false)
+		sUMessage.SendMessage()
+		return
+	}
+
+	listener, err := transportSpec.Listen(context.Background(), listen.addr)
 	if err != nil {
 		protocol.ConstructMessage(sUMessage, resHeader, failMess, false)
 		sUMessage.SendMessage()
@@ -114,7 +125,7 @@ func (listen *Listen) normalListen(mgr *manager.Manager, options *initial.Option
 			continue
 		}
 
-		if tsruntime.TLSEnabled() {
+		if tsruntime.TLSEnabled() && transportSpec.SupportsTLS() {
 			var tlsConfig *tls.Config
 			tlsConfig, err = transport.NewServerTLSConfig()
 			if err != nil {
@@ -635,7 +646,11 @@ func DispatchListenMess(mgr *manager.Manager, options *initial.Options) {
 
 		switch mess := message.(type) {
 		case *protocol.ListenReq:
-			listen := newListen(int(mess.Method), mess.Addr)
+			protocolName, err := stream.NormalizeProtocol(mess.Protocol)
+			if err != nil {
+				protocolName = stream.ProtocolTCP
+			}
+			listen := newListen(int(mess.Method), protocolName, mess.Addr)
 			go listen.start(mgr, options)
 		case *protocol.ChildUUIDRes:
 			mgr.ListenManager.ChildUUIDChan <- mess.UUID

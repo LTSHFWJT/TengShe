@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"TengShe/admin/printer"
+	"TengShe/share/transport/stream"
 
 	"github.com/nsf/termbox-go"
 )
@@ -44,7 +45,7 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
-	flagSet.StringVar(&options.Transport, "transport", "tcp", "Underlying transport: tcp or icmp")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp or icmp")
 	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
 	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
 	flagSet.StringVar(&options.Socks5Proxy, "socks5-proxy", "", "The socks5 server ip:port you want to use")
@@ -71,6 +72,8 @@ Usages:
 	>> ./tengshe_admin -l <port> -s [secret]
 	>> ./tengshe_admin -c <ip:port> -s [secret]
 	>> ./tengshe_admin -c <ip:port> -s [secret] --socks5-proxy <ip:port> --socks5-proxyu [username] --socks5-proxyp [password]
+	>> ./tengshe_admin -p icmp -l <local-ip> -s [secret]
+	>> ./tengshe_admin -p icmp -c <peer-ip> -s [secret]
 `)
 	flagSet.PrintDefaults()
 }
@@ -80,17 +83,20 @@ func ParseOptions() *Options {
 	flagSet, options := newFlagSet()
 	args = options
 
-	flagSet.Parse(os.Args[1:])
+	flagSet.Parse(normalizeProtocolFlagArgs(os.Args[1:]))
 
-	args.Transport = strings.ToLower(strings.TrimSpace(args.Transport))
-	if args.Transport == "" {
-		args.Transport = "tcp"
+	var err error
+	args.Transport, err = stream.NormalizeProtocol(args.Transport)
+	if err != nil {
+		termbox.Close()
+		printer.Fail("[*] Options err: %s\r\n", err.Error())
+		os.Exit(0)
 	}
-	if args.Transport == "icmp" && args.Listen == "" && args.Connect == "" && args.Socks5Proxy == "" && args.HttpProxy == "" {
+	if args.Transport == stream.ProtocolICMP && args.Listen == "" && args.Connect == "" && args.Socks5Proxy == "" && args.HttpProxy == "" {
 		args.Listen = "0.0.0.0"
 	}
 
-	if args.Transport == "icmp" {
+	if args.Transport != stream.ProtocolTCP {
 		if args.Connect != "" && args.Socks5Proxy == "" && args.HttpProxy == "" {
 			args.Mode = NORMAL_ACTIVE
 		} else if args.Connect == "" && args.Listen != "" && args.Socks5Proxy == "" && args.HttpProxy == "" {
@@ -144,29 +150,30 @@ func ParseOptions() *Options {
 func checkOptions(option *Options) error {
 	var err error
 
-	if option.Transport != "tcp" && option.Transport != "icmp" {
-		return fmt.Errorf("transport must be tcp or icmp")
+	option.Transport, err = stream.NormalizeProtocol(option.Transport)
+	if err != nil {
+		return err
 	}
 
-	if option.Transport == "icmp" {
+	if option.Transport != stream.ProtocolTCP {
 		if option.TlsEnable {
-			return fmt.Errorf("tls-enable is not supported with ICMP transport in the first implementation")
+			return fmt.Errorf("tls-enable is not supported with %s protocol in the first implementation", option.Transport)
 		}
 		if option.Socks5Proxy != "" || option.HttpProxy != "" {
-			return fmt.Errorf("proxy active mode is not supported with ICMP transport")
+			return fmt.Errorf("proxy active mode is not supported with %s protocol", option.Transport)
 		}
 		if option.Downstream != "" && option.Downstream != "raw" {
-			return fmt.Errorf("ICMP transport currently supports raw downstream only")
+			return fmt.Errorf("%s protocol currently supports raw downstream only", option.Transport)
 		}
 		if option.Listen == "" {
 			option.Listen = "0.0.0.0"
 		}
-		option.Listen, err = normalizeICMPListen(option.Listen)
+		option.Listen, err = stream.NormalizeListenAddress(option.Transport, option.Listen)
 		if err != nil {
 			return err
 		}
 		if option.Connect != "" {
-			option.Connect, err = normalizeICMPPeer(option.Connect)
+			option.Connect, err = stream.NormalizeDialAddress(option.Transport, option.Connect)
 			return err
 		}
 		return nil

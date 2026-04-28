@@ -6,6 +6,7 @@ import (
 	"TengShe/admin/topology"
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
+	"TengShe/share/transport/stream"
 	"TengShe/utils"
 )
 
@@ -16,12 +17,13 @@ const (
 )
 
 type Listen struct {
-	Method int
-	Addr   string
+	Method   int
+	Protocol string
+	Addr     string
 }
 
 func NewListen() *Listen {
-	return new(Listen)
+	return &Listen{Protocol: stream.ProtocolTCP}
 }
 
 func (listen *Listen) LetListen(mgr *manager.Manager, route, uuid string) error {
@@ -29,10 +31,16 @@ func (listen *Listen) LetListen(mgr *manager.Manager, route, uuid string) error 
 
 	if listen.Method == NORMAL {
 		var err error
-		finalAddr, _, err = utils.CheckIPPort(listen.Addr)
+		listen.Protocol, err = stream.NormalizeProtocol(listen.Protocol)
 		if err != nil {
 			return err
 		}
+		finalAddr, err = stream.NormalizeListenAddress(listen.Protocol, listen.Addr)
+		if err != nil {
+			return err
+		}
+	} else {
+		listen.Protocol = stream.ProtocolTCP
 	}
 
 	sMessage := tsruntime.NewDownstreamMessage(uuid, route)
@@ -46,9 +54,11 @@ func (listen *Listen) LetListen(mgr *manager.Manager, route, uuid string) error 
 	}
 
 	listenReqMess := &protocol.ListenReq{
-		Method:  uint16(listen.Method),
-		AddrLen: uint64(len(finalAddr)),
-		Addr:    finalAddr,
+		Method:      uint16(listen.Method),
+		ProtocolLen: uint16(len(listen.Protocol)),
+		Protocol:    listen.Protocol,
+		AddrLen:     uint64(len(finalAddr)),
+		Addr:        finalAddr,
 	}
 
 	protocol.ConstructMessage(sMessage, header, listenReqMess, false)
@@ -56,7 +66,7 @@ func (listen *Listen) LetListen(mgr *manager.Manager, route, uuid string) error 
 
 	if <-mgr.ListenManager.ListenReady {
 		if listen.Method == NORMAL {
-			printer.Success("\r\n[*] Node is listening on %s", listen.Addr)
+			printer.Success("\r\n[*] Node is listening on %s via %s", listen.Addr, listen.Protocol)
 		} else {
 			printer.Success("\r\n[*] Node is reusing port successfully,just waiting for child....")
 		}

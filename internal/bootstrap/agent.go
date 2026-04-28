@@ -1,13 +1,14 @@
 package bootstrap
 
 import (
+	"context"
 	"log"
 	"net"
 
 	agentinitial "TengShe/agent/initial"
 	"TengShe/protocol"
 	"TengShe/share"
-	"TengShe/share/transport/icmptransport"
+	"TengShe/share/transport/stream"
 )
 
 type AgentSession struct {
@@ -24,11 +25,10 @@ func ConnectAgent(options *agentinitial.Options) *AgentSession {
 		Cleanup: func() {},
 	}
 
-	if options.Transport == icmptransport.TransportName {
-		icmpConfig := icmptransport.DefaultConfigFromEnv()
+	if options.Transport != stream.ProtocolTCP {
 		switch options.Mode {
 		case agentinitial.NORMAL_PASSIVE:
-			listener, err := icmptransport.ListenConfig(options.Listen, icmpConfig)
+			listener, err := stream.Listen(context.Background(), options.Transport, options.Listen)
 			if err != nil {
 				log.Fatalf("[*] Error occurred: %s", err.Error())
 			}
@@ -39,10 +39,11 @@ func ConnectAgent(options *agentinitial.Options) *AgentSession {
 		case agentinitial.NORMAL_RECONNECT_ACTIVE:
 			fallthrough
 		case agentinitial.NORMAL_ACTIVE:
-			dialer := &icmptransport.Dialer{Peer: options.Connect, Bind: options.Listen, Config: icmpConfig}
-			session.Conn, session.UUID = agentinitial.NormalActiveWithDial(options, dialer.Dial)
+			session.Conn, session.UUID = agentinitial.NormalActiveWithDial(options, func() (net.Conn, error) {
+				return stream.Dial(context.Background(), options.Transport, options.Connect, options.Listen)
+			})
 		default:
-			log.Fatal("[*] Unsupported ICMP agent mode")
+			log.Fatalf("[*] Unsupported %s agent mode", options.Transport)
 		}
 		return session
 	}

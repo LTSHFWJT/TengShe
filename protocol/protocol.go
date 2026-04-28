@@ -182,9 +182,11 @@ type ShellExit struct {
 }
 
 type ListenReq struct {
-	Method  uint16
-	AddrLen uint64
-	Addr    string
+	Method      uint16
+	ProtocolLen uint16
+	Protocol    string
+	AddrLen     uint64
+	Addr        string
 }
 
 type ListenRes struct {
@@ -386,8 +388,10 @@ type BackwardStopDone struct {
 }
 
 type ConnectStart struct {
-	AddrLen uint16
-	Addr    string
+	ProtocolLen uint16
+	Protocol    string
+	AddrLen     uint16
+	Addr        string
 }
 
 type ConnectDone struct {

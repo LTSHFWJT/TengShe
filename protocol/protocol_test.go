@@ -197,6 +197,52 @@ func TestRawMessageRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRawListenReqRoundTripIncludesProtocol(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	secret := tengcrypto.KeyPadding([]byte("roundtrip-secret"))
+	body := &ListenReq{
+		Method:      0,
+		ProtocolLen: uint16(len("icmp")),
+		Protocol:    "icmp",
+		AddrLen:     uint64(len("0.0.0.0")),
+		Addr:        "0.0.0.0",
+	}
+	header := &Header{
+		Sender:      ADMIN_UUID,
+		Accepter:    "NODE000001",
+		MessageType: LISTENREQ,
+		RouteLen:    uint32(len(TEMP_ROUTE)),
+		Route:       TEMP_ROUTE,
+	}
+
+	out := &RawMessage{UUID: ADMIN_UUID, Conn: client, CryptoSecret: secret}
+	ConstructMessage(out, header, body, false)
+
+	done := make(chan struct{})
+	go func() {
+		out.SendMessage()
+		close(done)
+	}()
+
+	in := &RawMessage{UUID: "NODE000001", Conn: server, CryptoSecret: secret}
+	_, gotBody, err := DestructMessage(in)
+	if err != nil {
+		t.Fatalf("destruct listen req: %v", err)
+	}
+	waitForSend(t, done)
+
+	gotReq, ok := gotBody.(*ListenReq)
+	if !ok {
+		t.Fatalf("decoded body type = %T, want *ListenReq", gotBody)
+	}
+	if gotReq.Protocol != body.Protocol || gotReq.Addr != body.Addr {
+		t.Fatalf("decoded listen req = %+v, want %+v", gotReq, body)
+	}
+}
+
 func TestRawMessagePassThrough(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()

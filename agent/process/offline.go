@@ -1,6 +1,7 @@
 package process
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -13,7 +14,7 @@ import (
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
 	"TengShe/share"
-	"TengShe/share/transport/icmptransport"
+	"TengShe/share/transport/stream"
 	"TengShe/utils"
 
 	reuseport "github.com/libp2p/go-reuseport"
@@ -58,8 +59,8 @@ func normalPassiveReconn(options *initial.Options) net.Conn {
 		listener net.Listener
 		err      error
 	)
-	if options.Transport == icmptransport.TransportName {
-		listener, err = icmptransport.ListenConfig(options.Listen, icmptransport.DefaultConfigFromEnv())
+	if options.Transport != stream.ProtocolTCP {
+		listener, err = stream.Listen(context.Background(), options.Transport, options.Listen)
 	} else {
 		listenAddr, _, err := utils.CheckIPPort(options.Listen)
 		if err != nil {
@@ -250,8 +251,8 @@ func normalReconnActiveReconn(options *initial.Options, proxy share.Proxy) net.C
 			err  error
 		)
 
-		if proxy == nil && options.Transport == icmptransport.TransportName {
-			conn, err = icmptransport.DialConfig(options.Connect, options.Listen, icmptransport.DefaultConfigFromEnv())
+		if proxy == nil && options.Transport != stream.ProtocolTCP {
+			conn, err = stream.Dial(context.Background(), options.Transport, options.Connect, options.Listen)
 		} else if proxy == nil {
 			conn, err = net.Dial("tcp", options.Connect)
 		} else {
