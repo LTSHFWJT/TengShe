@@ -35,7 +35,7 @@ ${AGENT_BIN} -c 127.0.0.1:${ADMIN_PORT} -s ${SECRET}
 
 # Admin commands
 topo
-use 0
+goto 0
 detail
 status
 EOF
@@ -52,7 +52,7 @@ ${AGENT_BIN} -c 127.0.0.1:${ADMIN_PORT} -s ${SECRET}
 
 # Admin commands after agent1 appears
 topo
-use 0
+goto 0
 listen ${AGENT1_PORT}
 
 # Terminal C
@@ -60,7 +60,7 @@ ${AGENT_BIN} -c 127.0.0.1:${AGENT1_PORT} -s ${SECRET}
 
 # Admin commands
 topo
-use 1
+goto 1
 detail
 status
 EOF
@@ -68,7 +68,7 @@ EOF
 
 socks() {
 	cat <<EOF
-# Run after single-link setup and 'use 0'
+# Run after single-link setup and 'goto 0'
 socks 127.0.0.1:${SOCKS_PORT}
 status
 # Optional local check from another terminal:
@@ -83,7 +83,7 @@ forward_backward() {
 # Prepare a local service for forward testing in another terminal:
 # python3 -m http.server ${FORWARD_PORT}
 
-# Run after single-link setup and 'use 0'
+# Run after single-link setup and 'goto 0'
 forward ${FORWARD_PORT} 127.0.0.1:${FORWARD_PORT}
 status
 stopforward
@@ -99,7 +99,7 @@ file_transfer() {
 # Prepare a small file on the side that will upload it:
 # printf 'tengshe-smoke\\n' > /tmp/tengshe-small.txt
 
-# Run after single-link setup and 'use 0'
+# Run after single-link setup and 'goto 0'
 upload /tmp/tengshe-small.txt
 download /tmp/tengshe-small.txt
 EOF

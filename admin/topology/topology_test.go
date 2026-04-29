@@ -2,6 +2,7 @@ package topology
 
 import (
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -293,6 +294,33 @@ func TestTopologyLookupKeepsNodeNumbering(t *testing.T) {
 	topology.checkNode(&TopoTask{UUIDNum: 2})
 	if got := readTopoResult(t, topology).IsExist; got {
 		t.Fatal("node id 2 should not exist")
+	}
+}
+
+func TestTopologyTreeHelpersKeepStableOrdering(t *testing.T) {
+	topology := newTestTopology()
+
+	addTestNode(t, topology, "node1", "", true)
+	addTestNode(t, topology, "node2", "node1", false)
+	addTestNode(t, topology, "node3", "", true)
+
+	topology.nodes[0].currentUser = "alice"
+	topology.nodes[0].currentHostname = "host-a"
+	topology.nodes[0].memo = "first\nnode"
+
+	if roots := topology.rootNodeIDs(); !reflect.DeepEqual(roots, []int{0, 2}) {
+		t.Fatalf("root node ids = %v, want [0 2]", roots)
+	}
+
+	if children := topology.childNodeIDs(topology.nodes[0]); !reflect.DeepEqual(children, []int{1}) {
+		t.Fatalf("node0 child ids = %v, want [1]", children)
+	}
+
+	label := formatTopoNode(0, topology.nodes[0])
+	for _, want := range []string{"Node[0]", "ip=127.0.0.1", "alice@host-a", "memo=first node"} {
+		if !strings.Contains(label, want) {
+			t.Fatalf("topology label %q does not contain %q", label, want)
+		}
 	}
 }
 

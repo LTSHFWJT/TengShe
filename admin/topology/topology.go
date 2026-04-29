@@ -404,21 +404,112 @@ func (topology *Topology) showTopo() {
 }
 
 func (topology *Topology) showTopoWithTask(task *TopoTask) {
-	var nodes []int
-	for uuidNum := range topology.nodes {
-		nodes = append(nodes, uuidNum)
+	fmt.Print("\r\n[admin]\r\n")
+
+	visited := make(map[int]bool, len(topology.nodes))
+	roots := topology.rootNodeIDs()
+	for i, uuidNum := range roots {
+		topology.printTopoNode(uuidNum, "", i == len(roots)-1, visited)
 	}
 
-	utils.CheckRange(nodes)
-
-	for _, uuidNum := range nodes {
-		fmt.Printf("\r\nNode[%d]'s children ->\r\n", uuidNum)
-		for _, child := range topology.nodes[uuidNum].childrenUUID {
-			fmt.Printf("Node[%d]\r\n", topology.id2IDNum(child))
+	detached := topology.unvisitedNodeIDs(visited)
+	if len(detached) > 0 {
+		fmt.Print("[detached]\r\n")
+		for i, uuidNum := range detached {
+			topology.printTopoNode(uuidNum, "", i == len(detached)-1, visited)
 		}
 	}
 
 	topology.reply(task, &topoResult{}) // Just tell upstream: work done!
+}
+
+func (topology *Topology) rootNodeIDs() []int {
+	var roots []int
+	for uuidNum, target := range topology.nodes {
+		if target == nil {
+			continue
+		}
+		if target.parentUUID == protocol.ADMIN_UUID || topology.id2IDNum(target.parentUUID) < 0 {
+			roots = append(roots, uuidNum)
+		}
+	}
+	utils.CheckRange(roots)
+	return roots
+}
+
+func (topology *Topology) childNodeIDs(target *node) []int {
+	var children []int
+	if target == nil {
+		return children
+	}
+	for _, childUUID := range target.childrenUUID {
+		childIDNum := topology.id2IDNum(childUUID)
+		if childIDNum >= 0 {
+			children = append(children, childIDNum)
+		}
+	}
+	utils.CheckRange(children)
+	return children
+}
+
+func (topology *Topology) unvisitedNodeIDs(visited map[int]bool) []int {
+	var nodes []int
+	for uuidNum := range topology.nodes {
+		if !visited[uuidNum] {
+			nodes = append(nodes, uuidNum)
+		}
+	}
+	utils.CheckRange(nodes)
+	return nodes
+}
+
+func (topology *Topology) printTopoNode(uuidNum int, prefix string, isLast bool, visited map[int]bool) {
+	connector := "|-- "
+	nextPrefix := prefix + "|   "
+	if isLast {
+		connector = "`-- "
+		nextPrefix = prefix + "    "
+	}
+
+	target, ok := topology.nodes[uuidNum]
+	if !ok || target == nil {
+		fmt.Printf("%s%sNode[%d]  missing\r\n", prefix, connector, uuidNum)
+		return
+	}
+
+	if visited[uuidNum] {
+		fmt.Printf("%s%sNode[%d]  already shown\r\n", prefix, connector, uuidNum)
+		return
+	}
+	visited[uuidNum] = true
+
+	fmt.Printf("%s%s%s\r\n", prefix, connector, formatTopoNode(uuidNum, target))
+
+	children := topology.childNodeIDs(target)
+	for i, childIDNum := range children {
+		topology.printTopoNode(childIDNum, nextPrefix, i == len(children)-1, visited)
+	}
+}
+
+func formatTopoNode(uuidNum int, target *node) string {
+	parts := []string{fmt.Sprintf("Node[%d]", uuidNum)}
+	if currentIP := compactTopoField(target.currentIP); currentIP != "" {
+		parts = append(parts, "ip="+currentIP)
+	}
+
+	identity := strings.Trim(compactTopoField(target.currentUser)+"@"+compactTopoField(target.currentHostname), "@")
+	if identity != "" {
+		parts = append(parts, identity)
+	}
+
+	if memo := compactTopoField(target.memo); memo != "" {
+		parts = append(parts, "memo="+memo)
+	}
+	return strings.Join(parts, "  ")
+}
+
+func compactTopoField(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func (topology *Topology) updateMemo(task *TopoTask) {

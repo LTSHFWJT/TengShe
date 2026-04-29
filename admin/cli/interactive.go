@@ -455,16 +455,16 @@ func (console *Console) handleMainPanelCommand() {
 		}
 
 		switch fCommand[0] {
-		case "use":
+		case "goto", "use":
 			if console.expectParams(fCommand, 2, MAIN, 1) {
 				break
 			}
 
 			uuidNum, _ := utils.Str2Int(fCommand[1])
 
-			if console.isOnline(uuidNum) {
+			if console.topology.NodeExists(uuidNum) {
 				console.nodeMode = true
-				console.status = fmt.Sprintf("(node %s) >> ", fCommand[1])
+				console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
 				console.handleNodePanelCommand(uuidNum)
 				console.status = "(admin) >> "
 				console.nodeMode = false
@@ -538,6 +538,30 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 		fCommand := strings.Split(tCommand, " ")
 
 		switch fCommand[0] {
+		case "goto", "use":
+			if console.expectParams(fCommand, 2, NODE, 1) {
+				break
+			}
+
+			nextUUIDNum, _ := utils.Str2Int(fCommand[1])
+			if !console.topology.NodeExists(nextUUIDNum) {
+				printer.Fail("\r\n[*] Node %s doesn't exist!", fCommand[1])
+				console.ready <- true
+				break
+			}
+
+			uuidNum = nextUUIDNum
+			uuid = console.topology.QueryUUID(uuidNum)
+			route = console.topology.QueryRoute(uuid)
+			console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
+			console.ready <- true
+		case "topo":
+			if console.expectParams(fCommand, 1, NODE, 0) {
+				break
+			}
+
+			console.topology.ShowTopo()
+			console.ready <- true
 		case "status":
 			if !console.isOnline(uuidNum) {
 				return

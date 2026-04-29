@@ -10,7 +10,7 @@ import (
 	"fmt"
 )
 
-const TENGSHE_VERSION = "v0.1"
+const TENGSHE_VERSION = "v1.0"
 
 // Banner 程序图标
 func Banner() {
@@ -33,7 +33,7 @@ func ShowMainHelp() {
 	help                                     		Show help information
 	detail                                  		Display connected nodes' detail
 	topo                                     		Display nodes' topology
-	use        <id>                          		Select the target node you want to use
+	goto       <id>                          		Enter or switch to the target node panel
 	exit                                     		Exit TengShe
   `)
 }
@@ -42,6 +42,8 @@ func ShowMainHelp() {
 func ShowNodeHelp() {
 	fmt.Print(`
 	help                                            Show help information
+	goto       <id>                                 Switch to another node panel
+	topo                                            Display nodes' topology
 	status                                          Show node status,including socks/forward/backward
 	listen                                          Start tcp/icmp/dns listening on current node
 	addmemo    <string>                             Add memo for current node
