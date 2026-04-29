@@ -51,7 +51,7 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
-	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp or icmp")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp or dns")
 	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
 	flagSet.Uint64Var(&options.Reconnect, "reconnect", 0, "Reconnect interval in seconds")
 	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
@@ -83,6 +83,8 @@ Usages:
 	>> ./tengshe_agent -c <ip:port> -s [secret] --socks5-proxy <ip:port> --socks5-proxyu [username] --socks5-proxyp [password]
 	>> ./tengshe_agent -p icmp -l <local-ip> -s [secret]
 	>> ./tengshe_agent -p icmp -c <peer-ip> -s [secret]
+	>> ./tengshe_agent -p dns -l <host:port/domain> -s [secret]
+	>> ./tengshe_agent -p dns -c <domain[@resolver:port]> -s [secret]
 `)
 	flagSet.PrintDefaults()
 }
@@ -218,12 +220,14 @@ func checkOptions(option *Options) error {
 		if option.Downstream != "" && option.Downstream != "raw" {
 			return fmt.Errorf("%s protocol currently supports raw downstream only", option.Transport)
 		}
-		if option.Listen == "" {
+		if option.Listen == "" && option.Connect == "" {
 			option.Listen = "0.0.0.0"
 		}
-		option.Listen, err = stream.NormalizeListenAddress(option.Transport, option.Listen)
-		if err != nil {
-			return err
+		if option.Listen != "" {
+			option.Listen, err = stream.NormalizeListenAddress(option.Transport, option.Listen)
+			if err != nil {
+				return err
+			}
 		}
 		if option.Connect != "" {
 			option.Connect, err = stream.NormalizeDialAddress(option.Transport, option.Connect)

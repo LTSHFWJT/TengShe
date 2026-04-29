@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"TengShe/share/transport/dnstransport"
 	"TengShe/share/transport/icmptransport"
 	"TengShe/utils"
 )
@@ -16,6 +17,7 @@ import (
 const (
 	ProtocolTCP  = "tcp"
 	ProtocolICMP = "icmp"
+	ProtocolDNS  = "dns"
 
 	defaultDialTimeout = 10 * time.Second
 )
@@ -39,6 +41,7 @@ var (
 func init() {
 	MustRegister(TCPTransport{})
 	MustRegister(ICMPTransport{})
+	MustRegister(DNSTransport{})
 }
 
 func Register(transport Transport) error {
@@ -179,6 +182,31 @@ func (ICMPTransport) Dial(ctx context.Context, address string, bind string) (net
 }
 
 func (ICMPTransport) SupportsTLS() bool { return false }
+
+type DNSTransport struct{}
+
+func (DNSTransport) Protocol() string { return ProtocolDNS }
+
+func (DNSTransport) NormalizeListenAddress(address string) (string, error) {
+	return dnstransport.NormalizeListenAddress(address)
+}
+
+func (DNSTransport) NormalizeDialAddress(address string) (string, error) {
+	return dnstransport.NormalizeDialAddress(address)
+}
+
+func (DNSTransport) Listen(_ context.Context, address string) (net.Listener, error) {
+	return dnstransport.ListenConfig(address, dnstransport.DefaultConfigFromEnv())
+}
+
+func (DNSTransport) Dial(ctx context.Context, address string, bind string) (net.Conn, error) {
+	config := dnstransport.DefaultConfigFromEnv()
+	ctx, cancel := contextWithDefaultTimeout(ctx, config.HandshakeTimeout)
+	defer cancel()
+	return dnstransport.DialContext(ctx, address, bind, config)
+}
+
+func (DNSTransport) SupportsTLS() bool { return false }
 
 func contextWithDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {

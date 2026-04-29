@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"TengShe/admin/handler"
 	"TengShe/admin/manager"
@@ -29,12 +30,19 @@ type Console struct {
 	// Admin status
 	topology *topology.Topology
 	// console internal elements
-	status     string
-	ready      chan bool
-	getCommand chan string
-	shellMode  bool
-	sshMode    bool
-	nodeMode   bool
+	status      string
+	ready       chan bool
+	getCommand  chan string
+	shellMode   bool
+	sshMode     bool
+	nodeMode    bool
+	renderMu    sync.RWMutex
+	promptLive  bool
+	leftInput   string
+	rightInput  string
+	promptText  string
+	promptShell bool
+	promptSSH   bool
 	// manager that needs to be shared with main thread
 	mgr *manager.Manager
 }
@@ -70,6 +78,10 @@ func (console *Console) start() {
 	helper := NewHelper()
 	go helper.Run()
 
+	console.installPromptProvider()
+	defer console.uninstallPromptProvider()
+	console.setPromptInput(leftCommand, rightCommand)
+	console.setPromptLive(true)
 	fmt.Print(console.status)
 	// Tested on:
 	// macOS Catalina iterm2/original terminal
@@ -120,6 +132,7 @@ func (console *Console) start() {
 		} else if event.Key == termbox.KeyEnter {
 			if !console.shellMode && !console.sshMode {
 				command := leftCommand + rightCommand
+				console.setPromptLive(false)
 				// if command is not "",send it to history
 				if command != "" {
 					task := &HistoryTask{
@@ -136,10 +149,12 @@ func (console *Console) start() {
 				// set both left/right command -> []rune{},new start!
 				leftCommand = ""
 				rightCommand = ""
+				console.setPromptInput(leftCommand, rightCommand)
 				// avoid scenario that console.status is printed before it's changed
 				<-console.ready
 				fmt.Print("\r\n")
 				fmt.Print(console.status)
+				console.setPromptLive(true)
 			} else {
 				fmt.Print("\r\n")
 
@@ -164,6 +179,7 @@ func (console *Console) start() {
 				isGoingOn = false
 				leftCommand = ""
 				rightCommand = ""
+				console.setPromptInput(leftCommand, rightCommand)
 			}
 		} else if event.Key == termbox.KeyArrowUp {
 			if !console.shellMode && !console.sshMode {
@@ -418,6 +434,7 @@ func (console *Console) start() {
 				fmt.Print(string(bytes.Repeat([]byte("\b"), notSingleNum*2+singleNum)))
 			}
 		}
+		console.setPromptInput(leftCommand, rightCommand)
 	}
 }
 
@@ -562,9 +579,13 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			if <-console.mgr.ConsoleManager.OK {
 				console.status = ""
 				console.shellMode = true
+				console.setPromptLive(false)
 				console.handleShellPanelCommand(route, uuid)
 				console.shellMode = false
 				console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
+				console.setPromptInput("", "")
+				console.setPromptLive(true)
+				console.redrawPrompt()
 			} else {
 				printer.Fail("\r\n[*] Shell cannot be started!")
 				console.ready <- true
@@ -588,12 +609,12 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			option := console.pretreatInput()
 			if option == "1" {
 				listen.Method = handler.NORMAL
-				console.status = "[*] Please choose protocol(1. TCP/2. ICMP, default TCP): "
+				console.status = "[*] Please choose protocol(1. TCP/2. ICMP/3. DNS, default TCP): "
 				console.ready <- true
 				option = console.pretreatInput()
 				protocolName, ok := parseProtocolChoice(option)
 				if !ok {
-					printer.Fail("\r\n[*] Please input 1/2 or tcp/icmp!")
+					printer.Fail("\r\n[*] Please input 1/2/3 or tcp/icmp/dns!")
 					console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
 					console.ready <- true
 					continue
@@ -601,6 +622,8 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 				listen.Protocol = protocolName
 				if protocolName == "icmp" {
 					console.status = "[*] Please input the local ICMP bind IP(default 0.0.0.0): "
+				} else if protocolName == "dns" {
+					console.status = "[*] Please input the DNS listen address([ip:]port/domain, e.g. 5353/t.example): "
 				} else {
 					console.status = "[*] Please input the [ip:]<port> : "
 				}
@@ -711,9 +734,13 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			if <-console.mgr.ConsoleManager.OK {
 				console.status = ""
 				console.sshMode = true
+				console.setPromptLive(false)
 				console.handleSSHPanelCommand(route, uuid)
 				console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
 				console.sshMode = false
+				console.setPromptInput("", "")
+				console.setPromptLive(true)
+				console.redrawPrompt()
 			} else {
 				printer.Fail("\r\n[*] Fail to connect to target host via ssh!")
 				console.status = fmt.Sprintf("(node %d) >> ", uuidNum)

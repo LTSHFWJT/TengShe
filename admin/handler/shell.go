@@ -1,9 +1,8 @@
 package handler
 
 import (
-	"fmt"
-
 	"TengShe/admin/manager"
+	"TengShe/admin/printer"
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
 )
@@ -39,7 +38,7 @@ func DispatchShellMess(mgr *manager.Manager) {
 				mgr.ConsoleManager.OK <- false
 			}
 		case *protocol.ShellResult:
-			fmt.Print(mess.Result)
+			printer.Print("%s", mess.Result)
 		case *protocol.ShellExit:
 			mgr.ConsoleManager.Exit <- true
 		}

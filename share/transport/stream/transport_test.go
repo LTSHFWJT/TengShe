@@ -13,7 +13,7 @@ func TestNormalizeProtocolDefaultsToTCP(t *testing.T) {
 }
 
 func TestRegistryRejectsUnsupportedProtocol(t *testing.T) {
-	if _, err := Get("dns"); err == nil {
+	if _, err := Get("unknown"); err == nil {
 		t.Fatal("Get unsupported protocol unexpectedly succeeded")
 	}
 }
@@ -35,5 +35,23 @@ func TestICMPNormalizeDialAddressIgnoresPort(t *testing.T) {
 	}
 	if got != "127.0.0.1" {
 		t.Fatalf("NormalizeDialAddress icmp = %q, want 127.0.0.1", got)
+	}
+}
+
+func TestDNSNormalizeAddresses(t *testing.T) {
+	listen, err := NormalizeListenAddress(ProtocolDNS, "5353/t.example")
+	if err != nil {
+		t.Fatalf("NormalizeListenAddress dns error: %v", err)
+	}
+	if listen != "0.0.0.0:5353/t.example" {
+		t.Fatalf("NormalizeListenAddress dns = %q, want 0.0.0.0:5353/t.example", listen)
+	}
+
+	dial, err := NormalizeDialAddress(ProtocolDNS, "t.example@127.0.0.1:5353")
+	if err != nil {
+		t.Fatalf("NormalizeDialAddress dns error: %v", err)
+	}
+	if dial != "t.example@127.0.0.1:5353" {
+		t.Fatalf("NormalizeDialAddress dns = %q, want t.example@127.0.0.1:5353", dial)
 	}
 }
