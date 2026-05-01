@@ -10,7 +10,7 @@ import (
 	"fmt"
 )
 
-const TENGSHE_VERSION = "v1.0"
+const TENGSHE_VERSION = "v1.4"
 
 // Banner 程序图标
 func Banner() {
@@ -45,14 +45,14 @@ func ShowNodeHelp() {
 	use        <id>                                 Switch to another node panel
 	topo                                            Display nodes' topology
 	status                                          Show node status,including socks/forward/backward
-	listen                                          Start tcp/icmp/dns/ws listening on current node
+	listen                                          Start tcp/icmp/dns/ws/smb listening on current node
 	addmemo    <string>                             Add memo for current node
 	delmemo                                         Delete memo of current node
 	ssh        <ip:port>                            Start SSH through current node
 	shell                                           Start an interactive shell on current node
 	socks      <lport> [username] [pass]            Start a socks5 server
 	stopsocks                                       Shut down socks services
-	connect    <addr> [tcp|icmp|dns|ws]             Connect to a new node
+	connect    <addr> [tcp|icmp|dns|ws|smb]         Connect to a new node
 	sshtunnel  <ip:sshport> <agent port>            Use sshtunnel to add the node into our topology
 	upload     <local filename> <remote filename>   Upload file to current node
 	download   <remote filename> <local filename>   Download file from current node

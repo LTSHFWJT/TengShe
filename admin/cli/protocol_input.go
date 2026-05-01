@@ -16,6 +16,8 @@ func parseProtocolChoice(value string) (string, bool) {
 		return stream.ProtocolDNS, true
 	case "4", stream.ProtocolWebSocket, "websocket":
 		return stream.ProtocolWebSocket, true
+	case "5", stream.ProtocolSMB, "pipe", "namedpipe":
+		return stream.ProtocolSMB, true
 	default:
 		return "", false
 	}

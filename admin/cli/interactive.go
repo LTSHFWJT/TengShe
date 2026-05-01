@@ -633,12 +633,12 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			option := console.pretreatInput()
 			if option == "1" {
 				listen.Method = handler.NORMAL
-				console.status = "[*] Please choose protocol(1. TCP/2. ICMP/3. DNS/4. WS, default TCP): "
+				console.status = "[*] Please choose protocol(1. TCP/2. ICMP/3. DNS/4. WS/5. SMB, default TCP): "
 				console.ready <- true
 				option = console.pretreatInput()
 				protocolName, ok := parseProtocolChoice(option)
 				if !ok {
-					printer.Fail("\r\n[*] Please input 1/2/3/4 or tcp/icmp/dns/ws!")
+					printer.Fail("\r\n[*] Please input 1/2/3/4/5 or tcp/icmp/dns/ws/smb!")
 					console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
 					console.ready <- true
 					continue
@@ -650,6 +650,8 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 					console.status = "[*] Please input the DNS listen address([ip:]port/domain, e.g. 5353/t.example): "
 				} else if protocolName == "ws" {
 					console.status = "[*] Please input the WS listen address([ws://|wss://][ip:]port[/path], default path /tengshe): "
+				} else if protocolName == "smb" {
+					console.status = "[*] Please input the SMB listen address(pipe:name or \\\\.\\pipe\\name): "
 				} else {
 					console.status = "[*] Please input the [ip:]<port> : "
 				}

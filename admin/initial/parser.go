@@ -45,7 +45,7 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
-	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp, dns or ws")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp, dns, ws or smb")
 	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
 	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
 	flagSet.StringVar(&options.Socks5Proxy, "socks5-proxy", "", "The socks5 server ip:port you want to use")
@@ -78,6 +78,7 @@ Usages:
 	>> ./tengshe_admin -p dns -c <domain[@resolver:port]> -s [secret]
 	>> ./tengshe_admin -p ws -l <[ws://|wss://][ip:]port[/path]> -s [secret]
 	>> ./tengshe_admin -p ws -c <ws://host:port[/path]> -s [secret]
+	>> ./tengshe_admin -p smb -c <pipe://host/name|\\host\pipe\name> -s [secret]
 `)
 	flagSet.PrintDefaults()
 }
@@ -137,6 +138,8 @@ func ParseOptions() *Options {
 	case NORMAL_PASSIVE:
 		if args.Transport == "icmp" {
 			printer.Warning("[*] Starting admin node on ICMP address %s\r\n", args.Listen)
+		} else if args.Transport == "smb" {
+			printer.Warning("[*] Starting admin node on SMB pipe %s\r\n", args.Listen)
 		} else {
 			printer.Warning("[*] Starting admin node on port %s\r\n", args.Listen)
 		}
@@ -171,6 +174,9 @@ func checkOptions(option *Options) error {
 		}
 		if option.Listen == "" && option.Connect == "" {
 			option.Listen = "0.0.0.0"
+		}
+		if option.Transport == stream.ProtocolSMB && option.Listen != "" {
+			return fmt.Errorf("SMB listen is only supported on Windows nodes")
 		}
 		if option.Listen != "" {
 			option.Listen, err = stream.NormalizeListenAddress(option.Transport, option.Listen)

@@ -11,6 +11,7 @@ import (
 
 	"TengShe/share/transport/dnstransport"
 	"TengShe/share/transport/icmptransport"
+	"TengShe/share/transport/smbtransport"
 	"TengShe/share/transport/websockettransport"
 	"TengShe/utils"
 )
@@ -20,6 +21,7 @@ const (
 	ProtocolICMP      = "icmp"
 	ProtocolDNS       = "dns"
 	ProtocolWebSocket = "ws"
+	ProtocolSMB       = "smb"
 
 	defaultDialTimeout = 10 * time.Second
 )
@@ -45,6 +47,7 @@ func init() {
 	MustRegister(ICMPTransport{})
 	MustRegister(DNSTransport{})
 	MustRegister(WebSocketTransport{})
+	MustRegister(SMBTransport{})
 }
 
 func Register(transport Transport) error {
@@ -94,6 +97,9 @@ func NormalizeProtocol(protocol string) (string, error) {
 	}
 	if protocol == "ws" || protocol == "websocket" {
 		return ProtocolWebSocket, nil
+	}
+	if protocol == "smb" || protocol == "pipe" || protocol == "namedpipe" {
+		return ProtocolSMB, nil
 	}
 	return protocol, nil
 }
@@ -238,6 +244,31 @@ func (WebSocketTransport) Dial(ctx context.Context, address string, bind string)
 }
 
 func (WebSocketTransport) SupportsTLS() bool { return false }
+
+type SMBTransport struct{}
+
+func (SMBTransport) Protocol() string { return ProtocolSMB }
+
+func (SMBTransport) NormalizeListenAddress(address string) (string, error) {
+	return smbtransport.NormalizeListenAddress(address)
+}
+
+func (SMBTransport) NormalizeDialAddress(address string) (string, error) {
+	return smbtransport.NormalizeDialAddress(address)
+}
+
+func (SMBTransport) Listen(ctx context.Context, address string) (net.Listener, error) {
+	return smbtransport.ListenConfig(ctx, address, smbtransport.DefaultConfigFromEnv())
+}
+
+func (SMBTransport) Dial(ctx context.Context, address string, bind string) (net.Conn, error) {
+	config := smbtransport.DefaultConfigFromEnv()
+	ctx, cancel := contextWithDefaultTimeout(ctx, config.DialTimeout)
+	defer cancel()
+	return smbtransport.DialContext(ctx, address, bind, config)
+}
+
+func (SMBTransport) SupportsTLS() bool { return false }
 
 func contextWithDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {

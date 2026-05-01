@@ -24,6 +24,18 @@ func TestNormalizeProtocolWebSocketAlias(t *testing.T) {
 	}
 }
 
+func TestNormalizeProtocolSMBAlias(t *testing.T) {
+	for _, input := range []string{"smb", "pipe", "namedpipe"} {
+		got, err := NormalizeProtocol(input)
+		if err != nil {
+			t.Fatalf("NormalizeProtocol %s error: %v", input, err)
+		}
+		if got != ProtocolSMB {
+			t.Fatalf("NormalizeProtocol %s = %q, want %q", input, got, ProtocolSMB)
+		}
+	}
+}
+
 func TestRegistryRejectsUnsupportedProtocol(t *testing.T) {
 	if _, err := Get("unknown"); err == nil {
 		t.Fatal("Get unsupported protocol unexpectedly succeeded")
@@ -83,5 +95,27 @@ func TestWebSocketNormalizeAddresses(t *testing.T) {
 	}
 	if dial != "ws://127.0.0.1:8080/tengshe" {
 		t.Fatalf("NormalizeDialAddress websocket = %q, want ws://127.0.0.1:8080/tengshe", dial)
+	}
+}
+
+func TestSMBNormalizeAddresses(t *testing.T) {
+	listen, err := NormalizeListenAddress(ProtocolSMB, "tengshe")
+	if err != nil {
+		t.Fatalf("NormalizeListenAddress smb error: %v", err)
+	}
+	if listen != `\\.\pipe\tengshe` {
+		t.Fatalf("NormalizeListenAddress smb = %q, want \\\\.\\pipe\\tengshe", listen)
+	}
+
+	dial, err := NormalizeDialAddress(ProtocolSMB, "pipe://host/tengshe")
+	if err != nil {
+		t.Fatalf("NormalizeDialAddress smb error: %v", err)
+	}
+	if dial != `\\host\pipe\tengshe` {
+		t.Fatalf("NormalizeDialAddress smb = %q, want \\\\host\\pipe\\tengshe", dial)
+	}
+
+	if _, err := NormalizeListenAddress(ProtocolSMB, "file:./testdata/share"); err == nil {
+		t.Fatal("NormalizeListenAddress smb file unexpectedly succeeded")
 	}
 }
