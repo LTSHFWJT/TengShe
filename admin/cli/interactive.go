@@ -455,7 +455,7 @@ func (console *Console) handleMainPanelCommand() {
 		}
 
 		switch fCommand[0] {
-		case "goto", "use":
+		case "use":
 			if console.expectParams(fCommand, 2, MAIN, 1) {
 				break
 			}
@@ -538,7 +538,7 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 		fCommand := strings.Split(tCommand, " ")
 
 		switch fCommand[0] {
-		case "goto", "use":
+		case "use":
 			if console.expectParams(fCommand, 2, NODE, 1) {
 				break
 			}
@@ -633,12 +633,12 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 			option := console.pretreatInput()
 			if option == "1" {
 				listen.Method = handler.NORMAL
-				console.status = "[*] Please choose protocol(1. TCP/2. ICMP/3. DNS, default TCP): "
+				console.status = "[*] Please choose protocol(1. TCP/2. ICMP/3. DNS/4. WS, default TCP): "
 				console.ready <- true
 				option = console.pretreatInput()
 				protocolName, ok := parseProtocolChoice(option)
 				if !ok {
-					printer.Fail("\r\n[*] Please input 1/2/3 or tcp/icmp/dns!")
+					printer.Fail("\r\n[*] Please input 1/2/3/4 or tcp/icmp/dns/ws!")
 					console.status = fmt.Sprintf("(node %d) >> ", uuidNum)
 					console.ready <- true
 					continue
@@ -648,6 +648,8 @@ func (console *Console) handleNodePanelCommand(uuidNum int) {
 					console.status = "[*] Please input the local ICMP bind IP(default 0.0.0.0): "
 				} else if protocolName == "dns" {
 					console.status = "[*] Please input the DNS listen address([ip:]port/domain, e.g. 5353/t.example): "
+				} else if protocolName == "ws" {
+					console.status = "[*] Please input the WS listen address([ws://|wss://][ip:]port[/path], default path /tengshe): "
 				} else {
 					console.status = "[*] Please input the [ip:]<port> : "
 				}

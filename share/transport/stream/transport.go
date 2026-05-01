@@ -11,13 +11,15 @@ import (
 
 	"TengShe/share/transport/dnstransport"
 	"TengShe/share/transport/icmptransport"
+	"TengShe/share/transport/websockettransport"
 	"TengShe/utils"
 )
 
 const (
-	ProtocolTCP  = "tcp"
-	ProtocolICMP = "icmp"
-	ProtocolDNS  = "dns"
+	ProtocolTCP       = "tcp"
+	ProtocolICMP      = "icmp"
+	ProtocolDNS       = "dns"
+	ProtocolWebSocket = "ws"
 
 	defaultDialTimeout = 10 * time.Second
 )
@@ -42,6 +44,7 @@ func init() {
 	MustRegister(TCPTransport{})
 	MustRegister(ICMPTransport{})
 	MustRegister(DNSTransport{})
+	MustRegister(WebSocketTransport{})
 }
 
 func Register(transport Transport) error {
@@ -88,6 +91,9 @@ func NormalizeProtocol(protocol string) (string, error) {
 	}
 	if strings.ContainsAny(protocol, " \t\r\n") {
 		return "", fmt.Errorf("invalid stream protocol %q", protocol)
+	}
+	if protocol == "ws" || protocol == "websocket" {
+		return ProtocolWebSocket, nil
 	}
 	return protocol, nil
 }
@@ -207,6 +213,31 @@ func (DNSTransport) Dial(ctx context.Context, address string, bind string) (net.
 }
 
 func (DNSTransport) SupportsTLS() bool { return false }
+
+type WebSocketTransport struct{}
+
+func (WebSocketTransport) Protocol() string { return ProtocolWebSocket }
+
+func (WebSocketTransport) NormalizeListenAddress(address string) (string, error) {
+	return websockettransport.NormalizeListenAddress(address)
+}
+
+func (WebSocketTransport) NormalizeDialAddress(address string) (string, error) {
+	return websockettransport.NormalizeDialAddress(address)
+}
+
+func (WebSocketTransport) Listen(ctx context.Context, address string) (net.Listener, error) {
+	return websockettransport.ListenConfig(ctx, address, websockettransport.DefaultConfigFromEnv())
+}
+
+func (WebSocketTransport) Dial(ctx context.Context, address string, bind string) (net.Conn, error) {
+	config := websockettransport.DefaultConfigFromEnv()
+	ctx, cancel := contextWithDefaultTimeout(ctx, config.HandshakeTimeout)
+	defer cancel()
+	return websockettransport.DialContext(ctx, address, bind, config)
+}
+
+func (WebSocketTransport) SupportsTLS() bool { return false }
 
 func contextWithDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {

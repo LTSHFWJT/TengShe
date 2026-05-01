@@ -206,8 +206,6 @@ func MarshalMessage(message Message, header *Header, mess interface{}, isPass bo
 		return drainRawFrame(msg), nil
 	case *HTTPMessage:
 		return drainHTTPFrame(msg), nil
-	case *WSMessage:
-		return drainRawFrame(msg.RawMessage), nil
 	default:
 		return nil, errors.New("unsupported protocol message type")
 	}

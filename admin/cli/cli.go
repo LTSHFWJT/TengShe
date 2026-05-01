@@ -33,7 +33,7 @@ func ShowMainHelp() {
 	help                                     		Show help information
 	detail                                  		Display connected nodes' detail
 	topo                                     		Display nodes' topology
-	goto       <id>                          		Enter or switch to the target node panel
+	use        <id>                          		Enter or switch to the target node panel
 	exit                                     		Exit TengShe
   `)
 }
@@ -42,17 +42,17 @@ func ShowMainHelp() {
 func ShowNodeHelp() {
 	fmt.Print(`
 	help                                            Show help information
-	goto       <id>                                 Switch to another node panel
+	use        <id>                                 Switch to another node panel
 	topo                                            Display nodes' topology
 	status                                          Show node status,including socks/forward/backward
-	listen                                          Start tcp/icmp/dns listening on current node
+	listen                                          Start tcp/icmp/dns/ws listening on current node
 	addmemo    <string>                             Add memo for current node
 	delmemo                                         Delete memo of current node
 	ssh        <ip:port>                            Start SSH through current node
 	shell                                           Start an interactive shell on current node
 	socks      <lport> [username] [pass]            Start a socks5 server
 	stopsocks                                       Shut down socks services
-	connect    <addr> [tcp|icmp|dns]                Connect to a new node
+	connect    <addr> [tcp|icmp|dns|ws]             Connect to a new node
 	sshtunnel  <ip:sshport> <agent port>            Use sshtunnel to add the node into our topology
 	upload     <local filename> <remote filename>   Upload file to current node
 	download   <remote filename> <local filename>   Download file from current node

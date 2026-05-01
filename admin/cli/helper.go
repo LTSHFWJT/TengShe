@@ -35,7 +35,7 @@ type tireTree struct {
 func NewHelper() *Helper {
 	helper := new(Helper)
 	helper.adminList = []string{
-		"goto",
+		"use",
 		"detail",
 		"topo",
 		"help",
@@ -44,7 +44,7 @@ func NewHelper() *Helper {
 
 	helper.nodeList = []string{
 		"help",
-		"goto",
+		"use",
 		"topo",
 		"status",
 		"listen",

@@ -12,6 +12,18 @@ func TestNormalizeProtocolDefaultsToTCP(t *testing.T) {
 	}
 }
 
+func TestNormalizeProtocolWebSocketAlias(t *testing.T) {
+	for _, input := range []string{"ws", "websocket"} {
+		got, err := NormalizeProtocol(input)
+		if err != nil {
+			t.Fatalf("NormalizeProtocol %s error: %v", input, err)
+		}
+		if got != ProtocolWebSocket {
+			t.Fatalf("NormalizeProtocol %s = %q, want %q", input, got, ProtocolWebSocket)
+		}
+	}
+}
+
 func TestRegistryRejectsUnsupportedProtocol(t *testing.T) {
 	if _, err := Get("unknown"); err == nil {
 		t.Fatal("Get unsupported protocol unexpectedly succeeded")
@@ -53,5 +65,23 @@ func TestDNSNormalizeAddresses(t *testing.T) {
 	}
 	if dial != "t.example@127.0.0.1:5353" {
 		t.Fatalf("NormalizeDialAddress dns = %q, want t.example@127.0.0.1:5353", dial)
+	}
+}
+
+func TestWebSocketNormalizeAddresses(t *testing.T) {
+	listen, err := NormalizeListenAddress(ProtocolWebSocket, "8080")
+	if err != nil {
+		t.Fatalf("NormalizeListenAddress websocket error: %v", err)
+	}
+	if listen != "ws://0.0.0.0:8080/tengshe" {
+		t.Fatalf("NormalizeListenAddress websocket = %q, want ws://0.0.0.0:8080/tengshe", listen)
+	}
+
+	dial, err := NormalizeDialAddress(ProtocolWebSocket, "127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("NormalizeDialAddress websocket error: %v", err)
+	}
+	if dial != "ws://127.0.0.1:8080/tengshe" {
+		t.Fatalf("NormalizeDialAddress websocket = %q, want ws://127.0.0.1:8080/tengshe", dial)
 	}
 }

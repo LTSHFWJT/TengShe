@@ -43,15 +43,15 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
-	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp or dns")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp, dns or ws")
 	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
 	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
 	flagSet.StringVar(&options.Socks5Proxy, "socks5-proxy", "", "The socks5 server ip:port you want to use")
 	flagSet.StringVar(&options.Socks5ProxyU, "socks5-proxyu", "", "socks5 username")
 	flagSet.StringVar(&options.Socks5ProxyP, "socks5-proxyp", "", "socks5 password")
 	flagSet.StringVar(&options.HttpProxy, "http-proxy", "", "The http proxy server ip:port you want to use")
-	flagSet.StringVar(&options.Downstream, "down", "raw", "Downstream data type you want to use")
-	flagSet.StringVar(&options.Domain, "domain", "", "Domain name for TLS SNI/WS")
+	flagSet.StringVar(&options.Downstream, "down", "raw", "Downstream data type: raw or http")
+	flagSet.StringVar(&options.Domain, "domain", "", "Domain name for TLS SNI")
 	flagSet.BoolVar(&options.TlsEnable, "tls-enable", false, "Encrypt connection by TLS")
 	flagSet.BoolVar(&options.Heartbeat, "heartbeat", false, "Send heartbeat packet to first agent")
 
@@ -72,6 +72,8 @@ Usages:
 	>> ./tengshe_admin -p icmp -c <peer-ip> -s [secret]
 	>> ./tengshe_admin -p dns -l <host:port/domain> -s [secret]
 	>> ./tengshe_admin -p dns -c <domain[@resolver:port]> -s [secret]
+	>> ./tengshe_admin -p ws -l <[ws://|wss://][ip:]port[/path]> -s [secret]
+	>> ./tengshe_admin -p ws -c <ws://host:port[/path]> -s [secret]
 `)
 	flagSet.PrintDefaults()
 }
@@ -153,7 +155,7 @@ func checkOptions(option *Options) error {
 
 	if option.Transport != stream.ProtocolTCP {
 		if option.TlsEnable {
-			return fmt.Errorf("tls-enable is not supported with %s protocol in the first implementation", option.Transport)
+			return fmt.Errorf("tls-enable is not supported with %s protocol", option.Transport)
 		}
 		if option.Socks5Proxy != "" || option.HttpProxy != "" {
 			return fmt.Errorf("proxy active mode is not supported with %s protocol", option.Transport)
@@ -175,6 +177,10 @@ func checkOptions(option *Options) error {
 			return err
 		}
 		return nil
+	}
+
+	if err := validateDownstream(option.Downstream); err != nil {
+		return err
 	}
 
 	if args.Connect != "" {

@@ -435,17 +435,13 @@ type MessageComponent struct {
 }
 
 func SetUpDownStream(upstream, downstream string) {
-	if upstream == "ws" {
-		Upstream = "ws"
-	} else if upstream == "http" {
+	if upstream == "http" {
 		Upstream = "http"
 	} else {
 		Upstream = "raw"
 	}
 
-	if downstream == "ws" {
-		Downstream = "ws"
-	} else if downstream == "http" {
+	if downstream == "http" {
 		Downstream = "http"
 	} else {
 		Downstream = "raw"
@@ -460,11 +456,6 @@ func NewUpProto(param *NegParam) Proto {
 	case "http":
 		tProto := new(HTTPProto)
 		return tProto
-	case "ws":
-		tProto := new(WSProto)
-		tProto.domain = param.Domain
-		tProto.conn = param.Conn
-		return tProto
 	}
 	return nil
 }
@@ -477,11 +468,6 @@ func NewDownProto(param *NegParam) Proto {
 	case "http":
 		tProto := new(HTTPProto)
 		return tProto
-	case "ws":
-		tProto := new(WSProto)
-		tProto.domain = param.Domain
-		tProto.conn = param.Conn
-		return tProto
 	}
 	return nil
 }
@@ -493,13 +479,6 @@ func NewUpMsg(conn net.Conn, secret string, uuid string) Message {
 		tMessage.Conn = conn
 		tMessage.UUID = uuid
 		tMessage.CryptoSecret = crypto.KeyPadding([]byte(secret))
-		return tMessage
-	case "ws":
-		tMessage := new(WSMessage)
-		tMessage.RawMessage = new(RawMessage)
-		tMessage.RawMessage.Conn = conn
-		tMessage.RawMessage.UUID = uuid
-		tMessage.RawMessage.CryptoSecret = crypto.KeyPadding([]byte(secret))
 		return tMessage
 	case "http":
 		tMessage := new(HTTPMessage)
@@ -519,13 +498,6 @@ func NewDownMsg(conn net.Conn, secret string, uuid string) Message {
 		tMessage.Conn = conn
 		tMessage.UUID = uuid
 		tMessage.CryptoSecret = crypto.KeyPadding([]byte(secret))
-		return tMessage
-	case "ws":
-		tMessage := new(WSMessage)
-		tMessage.RawMessage = new(RawMessage)
-		tMessage.RawMessage.Conn = conn
-		tMessage.RawMessage.UUID = uuid
-		tMessage.RawMessage.CryptoSecret = crypto.KeyPadding([]byte(secret))
 		return tMessage
 	case "http":
 		tMessage := new(HTTPMessage)

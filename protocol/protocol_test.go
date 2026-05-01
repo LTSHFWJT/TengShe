@@ -26,7 +26,7 @@ func TestSetUpDownStream(t *testing.T) {
 	}{
 		{name: "raw", upstream: "raw", downstream: "raw", wantUpstream: "raw", wantDownstream: "raw"},
 		{name: "http", upstream: "http", downstream: "http", wantUpstream: "http", wantDownstream: "http"},
-		{name: "ws", upstream: "ws", downstream: "ws", wantUpstream: "ws", wantDownstream: "ws"},
+		{name: "ws removed", upstream: "ws", downstream: "ws", wantUpstream: "raw", wantDownstream: "raw"},
 		{name: "fallback", upstream: "tcp", downstream: "tls", wantUpstream: "raw", wantDownstream: "raw"},
 	}
 
@@ -48,7 +48,7 @@ func TestNewProtoFactories(t *testing.T) {
 		Upstream, Downstream = oldUpstream, oldDownstream
 	}()
 
-	for _, stream := range []string{"raw", "http", "ws"} {
+	for _, stream := range []string{"raw", "http"} {
 		client, server := net.Pipe()
 		param := &NegParam{Domain: "example.test", Conn: client}
 
@@ -75,14 +75,6 @@ func assertProtoType(t *testing.T, name string, got Proto, stream string) {
 		if _, ok := got.(*HTTPProto); !ok {
 			t.Fatalf("%s proto type = %T, want *HTTPProto", name, got)
 		}
-	case "ws":
-		wsProto, ok := got.(*WSProto)
-		if !ok {
-			t.Fatalf("%s proto type = %T, want *WSProto", name, got)
-		}
-		if wsProto.domain != "example.test" || wsProto.conn == nil {
-			t.Fatalf("%s ws proto was not initialized with negotiation parameters", name)
-		}
 	default:
 		t.Fatalf("unsupported stream %q", stream)
 	}
@@ -94,7 +86,7 @@ func TestNewMessageFactories(t *testing.T) {
 		Upstream, Downstream = oldUpstream, oldDownstream
 	}()
 
-	for _, stream := range []string{"raw", "http", "ws"} {
+	for _, stream := range []string{"raw", "http"} {
 		client, server := net.Pipe()
 
 		SetUpDownStream(stream, "raw")
@@ -123,12 +115,6 @@ func assertMessageType(t *testing.T, name string, got Message, stream string, co
 		msg, ok := got.(*HTTPMessage)
 		if !ok {
 			t.Fatalf("%s message type = %T, want *HTTPMessage", name, got)
-		}
-		raw = msg.RawMessage
-	case "ws":
-		msg, ok := got.(*WSMessage)
-		if !ok {
-			t.Fatalf("%s message type = %T, want *WSMessage", name, got)
 		}
 		raw = msg.RawMessage
 	default:

@@ -51,7 +51,7 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 
 	flagSet.StringVar(&options.Secret, "s", "", "Communication secret")
-	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp or dns")
+	flagSet.StringVar(&options.Transport, "p", "tcp", "Protocol: tcp, icmp, dns or ws")
 	flagSet.StringVar(&options.Listen, "l", "", "Listen port")
 	flagSet.Uint64Var(&options.Reconnect, "reconnect", 0, "Reconnect interval in seconds")
 	flagSet.StringVar(&options.Connect, "c", "", "The node address when you actively connect to it")
@@ -61,10 +61,10 @@ func newFlagSet() (*flag.FlagSet, *Options) {
 	flagSet.StringVar(&options.Socks5ProxyU, "socks5-proxyu", "", "socks5 username")
 	flagSet.StringVar(&options.Socks5ProxyP, "socks5-proxyp", "", "socks5 password")
 	flagSet.StringVar(&options.HttpProxy, "http-proxy", "", "The http proxy server ip:port you want to use")
-	flagSet.StringVar(&options.Upstream, "up", "raw", "Upstream data type you want to use")
-	flagSet.StringVar(&options.Downstream, "down", "raw", "Downstream data type you want to use")
+	flagSet.StringVar(&options.Upstream, "up", "raw", "Upstream data type: raw or http")
+	flagSet.StringVar(&options.Downstream, "down", "raw", "Downstream data type: raw or http")
 	flagSet.StringVar(&options.Charset, "cs", "utf-8", "Charset: utf-8 or gbk")
-	flagSet.StringVar(&options.Domain, "domain", "", "Domain name for TLS SNI/WS")
+	flagSet.StringVar(&options.Domain, "domain", "", "Domain name for TLS SNI")
 	flagSet.BoolVar(&options.TlsEnable, "tls-enable", false, "Encrypt connection by TLS")
 
 	flagSet.Usage = func() {
@@ -85,6 +85,8 @@ Usages:
 	>> ./tengshe_agent -p icmp -c <peer-ip> -s [secret]
 	>> ./tengshe_agent -p dns -l <host:port/domain> -s [secret]
 	>> ./tengshe_agent -p dns -c <domain[@resolver:port]> -s [secret]
+	>> ./tengshe_agent -p ws -l <[ws://|wss://][ip:]port[/path]> -s [secret]
+	>> ./tengshe_agent -p ws -c <ws://host:port[/path]> -s [secret]
 `)
 	flagSet.PrintDefaults()
 }
@@ -206,7 +208,7 @@ func checkOptions(option *Options) error {
 
 	if option.Transport != stream.ProtocolTCP {
 		if option.TlsEnable {
-			return fmt.Errorf("tls-enable is not supported with %s protocol in the first implementation", option.Transport)
+			return fmt.Errorf("tls-enable is not supported with %s protocol", option.Transport)
 		}
 		if option.Socks5Proxy != "" || option.HttpProxy != "" || option.Socks5ProxyU != "" || option.Socks5ProxyP != "" {
 			return fmt.Errorf("proxy active mode is not supported with %s protocol", option.Transport)
@@ -236,6 +238,10 @@ func checkOptions(option *Options) error {
 		return nil
 	}
 
+	if err := validateUpDownStream(option.Upstream, option.Downstream); err != nil {
+		return err
+	}
+
 	if args.Connect != "" {
 		_, err = net.ResolveTCPAddr("", option.Connect)
 	}
@@ -255,6 +261,24 @@ func checkOptions(option *Options) error {
 	}
 
 	return err
+}
+
+func validateUpDownStream(upstream, downstream string) error {
+	if err := validateStreamType("upstream", upstream); err != nil {
+		return err
+	}
+	return validateStreamType("downstream", downstream)
+}
+
+func validateStreamType(name, value string) error {
+	switch value {
+	case "", "raw", "http":
+		return nil
+	case "ws", "websocket":
+		return fmt.Errorf("ws message wrapping was removed; use -p ws for WebSocket transport")
+	default:
+		return fmt.Errorf("unsupported %s data type %q: expected raw or http", name, value)
+	}
 }
 
 func normalizeICMPListen(value string) (string, error) {

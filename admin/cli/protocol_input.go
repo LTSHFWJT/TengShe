@@ -14,6 +14,8 @@ func parseProtocolChoice(value string) (string, bool) {
 		return stream.ProtocolICMP, true
 	case "3", stream.ProtocolDNS:
 		return stream.ProtocolDNS, true
+	case "4", stream.ProtocolWebSocket, "websocket":
+		return stream.ProtocolWebSocket, true
 	default:
 		return "", false
 	}
