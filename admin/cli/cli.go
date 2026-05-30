@@ -10,7 +10,7 @@ import (
 	"fmt"
 )
 
-const TENGSHE_VERSION = "v1.4"
+const TENGSHE_VERSION = "v1.5"
 
 // Banner 程序图标
 func Banner() {

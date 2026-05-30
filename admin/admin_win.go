@@ -5,7 +5,7 @@ package main
 import (
 	"runtime"
 
-	"TengShe/internal/app"
+	"TengShe/internal/adminapp"
 )
 
 func init() {
@@ -13,5 +13,5 @@ func init() {
 }
 
 func main() {
-	app.RunAdmin()
+	adminapp.Run()
 }

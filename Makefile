@@ -1,5 +1,5 @@
 BUILD_ENV = CGO_ENABLED=0
-OPTIONS = -trimpath -ldflags "-w -s"
+OPTIONS = -trimpath -ldflags "-w -s -buildid="
 RELEASE_DIR = release
 
 .PHONY: all admin agent linux_agent windows_agent macos_agent mips_agent arm_agent windows_admin linux_admin macos_admin windows_nogui_agent freebsd_agent freebsd_admin clean
@@ -84,8 +84,8 @@ freebsd_admin: $(RELEASE_DIR)
 # Then, run `make windows_nogui_agent` and get your bonus!
 
 windows_nogui_agent: $(RELEASE_DIR)
-	${BUILD_ENV} GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-w -s -H=windowsgui" -o release/windows_x64_agent.exe agent/agent.go 
-	${BUILD_ENV} GOOS=windows GOARCH=386 go build -trimpath -ldflags="-w -s -H=windowsgui" -o release/windows_x86_agent.exe agent/agent.go 
+	${BUILD_ENV} GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-w -s -buildid= -H=windowsgui" -o release/windows_x64_agent.exe agent/agent.go 
+	${BUILD_ENV} GOOS=windows GOARCH=386 go build -trimpath -ldflags="-w -s -buildid= -H=windowsgui" -o release/windows_x86_agent.exe agent/agent.go 
 
 clean:
 	@rm -f release/*

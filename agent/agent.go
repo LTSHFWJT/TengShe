@@ -3,7 +3,7 @@ package main
 import (
 	"runtime"
 
-	"TengShe/internal/app"
+	"TengShe/internal/agentapp"
 )
 
 func init() {
@@ -11,5 +11,5 @@ func init() {
 }
 
 func main() {
-	app.RunAgent()
+	agentapp.Run()
 }

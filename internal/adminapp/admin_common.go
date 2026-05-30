@@ -1,14 +1,14 @@
-package app
+package adminapp
 
 import (
 	"TengShe/admin/initial"
 	"TengShe/admin/process"
-	"TengShe/internal/bootstrap"
+	"TengShe/internal/adminbootstrap"
 	tsruntime "TengShe/internal/runtime"
 	"TengShe/protocol"
 )
 
-func runAdmin(options *initial.Options, session *bootstrap.AdminSession) {
+func run(options *initial.Options, session *adminbootstrap.Session) {
 	topo := session.Topology
 	admin := process.NewAdmin(options, topo, session.Root, session.Accepted)
 

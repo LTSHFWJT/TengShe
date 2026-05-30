@@ -80,7 +80,7 @@ admin:
 
 | 参数 | 说明 |
 |---|---|
-| `-l <addr>` | 被动监听。TCP 为 `[ip:]port`，ICMP 为本地 IPv4，DNS 为 `host:port/domain`，WS 为 `[ip:]port[/path]`、`ws://[ip:]port[/path]` 或 `wss://[ip:]port[/path]`，SMB 为 `pipe:name` 或 `\\.\pipe\name` |
+| `-l <addr>` | 被动监听。TCP 为 `[ip:]port`，ICMP 为本地 IPv4，DNS 为 `host:port/domain`，WS 为 `[ip:]port[/path]`、`ws://[ip:]port[/path]` 或 `wss://[ip:]port[/path]`，SMB 为 Windows 构建中的 `pipe:name` 或 `\\.\pipe\name` |
 | `-c <addr>` | 主动连接。TCP 为 `ip:port`，ICMP 为对端 IPv4，DNS 为 `domain[@resolver:port]`，WS 为 `ws://host:port[/path]` 或 `wss://host:port[/path]`，SMB 为 `pipe://host/name` 或 `\\host\pipe\name` |
 | `-s <secret>` | 通信密钥 |
 | `-p <protocol>` | 底层传输协议，可选 `tcp`、`icmp`、`dns`、`ws`、`smb`，默认 `tcp` |
@@ -237,7 +237,7 @@ WSS:
 
 ### SMB
 
-SMB 只作为 Windows Named Pipe 底层传输适配层，使用 `\\host\pipe\name` 命名管道承载 TengShe 上层可靠字节流。
+SMB 使用 `\\host\pipe\name` 命名管道承载 TengShe 上层可靠字节流。
 
 - Windows 节点支持本机 pipe listen 和 pipe dial。
 - macOS/Linux 节点支持通过 SMB2/3 主动连接远端 Windows `IPC$` 并打开 named pipe。
@@ -270,10 +270,11 @@ TENGSHE_SMB_USER=lab TENGSHE_SMB_PASSWORD='password' TENGSHE_SMB_DOMAIN=LAB \
 - `-p smb -l pipe:name` 会规范化为 `\\.\pipe\name`。
 - `-p smb -c pipe://host/name` 会规范化为 `\\host\pipe\name`。
 - macOS/Linux 下 `pipe://host/name` 使用内置 SMB2/3 client 访问远端 `IPC$`；其他非 Windows 构建暂不启用该 go-smb remote pipe 客户端。
+- SMB listener 和本机 `pipe://./name` 仅在 Windows 构建中启用；macOS/Linux 只支持主动连接远端 `pipe://host/name`。
 - `pipe://./name` 本机 Named Pipe 只支持 Windows。
 - `-p smb` 只支持 `raw` 上下游封装。
 - `-p smb` 不支持 `--tls-enable`、代理主动连接和端口复用模式。
-- Named Pipe listener 仅在 Windows 构建上可用；非 Windows 节点只能作为主动端连接远端 Windows pipe。
+- Named Pipe listener 仅在 Windows 构建上可用。
 - SMB 可承载单跳、多级、SOCKS、forward/backward、文件、shell/ssh/sshtunnel 等上层数据，吞吐取决于 SMB 环境和命名管道缓冲。
 
 常用 SMB 环境变量：
@@ -424,7 +425,8 @@ agent/                 agent handler、manager、process、启动参数解析
 protocol/              TengShe 消息类型与 raw/http 编解码
 share/                 preauth、proxy、file、transport、通用 IO 工具
 share/transport/       TCP/ICMP/DNS/WS stream transport
-internal/bootstrap/    admin/agent 初始建链边界
+internal/adminbootstrap/ admin 初始建链边界
+internal/agentbootstrap/ agent 初始建链边界
 internal/runtime/      运行时上下文
 selfdoc/               设计、TODO 和排障文档
 selfproject/           参考项目源码，不作为 TengShe 构建入口

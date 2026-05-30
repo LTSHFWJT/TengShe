@@ -1,4 +1,4 @@
-package bootstrap
+package adminbootstrap
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 	"TengShe/share/transport/stream"
 )
 
-type AdminSession struct {
+type Session struct {
 	Topology *topology.Topology
 	Root     *admininitial.AdminConn
 	Accepted <-chan *admininitial.AdminConn
 }
 
-func ConnectAdmin(options *admininitial.Options) *AdminSession {
+func Connect(options *admininitial.Options) *Session {
 	share.GeneratePreAuthToken(options.Secret)
 	protocol.SetUpDownStream("raw", options.Downstream)
 
@@ -48,7 +48,7 @@ func ConnectAdmin(options *admininitial.Options) *AdminSession {
 			printer.Fail("[*] Unsupported %s admin mode", options.Transport)
 			os.Exit(0)
 		}
-		return &AdminSession{
+		return &Session{
 			Topology: topo,
 			Root:     root,
 			Accepted: accepted,
@@ -71,7 +71,7 @@ func ConnectAdmin(options *admininitial.Options) *AdminSession {
 		os.Exit(0)
 	}
 
-	return &AdminSession{
+	return &Session{
 		Topology: topo,
 		Root:     root,
 		Accepted: accepted,

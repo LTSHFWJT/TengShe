@@ -4,18 +4,7 @@ import (
 	"TengShe/admin/manager"
 	"TengShe/protocol"
 	"TengShe/share"
-
-	"github.com/cheggaaa/pb/v3"
 )
-
-// generate new bar
-func NewBar(length int64) *pb.ProgressBar {
-	bar := pb.New64(int64(length))
-	bar.SetTemplate(pb.Full)
-	bar.Set(pb.Bytes, true)
-
-	return bar
-}
 
 func StartBar(statusChan chan *share.Status, size int64) {
 	bar := NewBar(size)

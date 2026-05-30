@@ -1,22 +1,22 @@
 //go:build windows
 
-package app
+package adminapp
 
 import (
 	"TengShe/admin/cli"
 	"TengShe/admin/initial"
 	"TengShe/admin/printer"
-	"TengShe/internal/bootstrap"
+	"TengShe/internal/adminbootstrap"
 )
 
-func RunAdmin() {
+func Run() {
 	printer.InitPrinter()
 
 	options := initial.ParseOptions()
 
 	cli.Banner()
 
-	session := bootstrap.ConnectAdmin(options)
+	session := adminbootstrap.Connect(options)
 
-	runAdmin(options, session)
+	run(options, session)
 }

@@ -1,18 +1,18 @@
-package app
+package agentapp
 
 import (
 	"TengShe/agent/initial"
 	"TengShe/agent/process"
-	"TengShe/internal/bootstrap"
+	"TengShe/internal/agentbootstrap"
 	tsruntime "TengShe/internal/runtime"
 )
 
-func RunAgent() {
+func Run() {
 	options := initial.ParseOptions()
 
 	agent := process.NewAgent(options)
 
-	session := bootstrap.ConnectAgent(options)
+	session := agentbootstrap.Connect(options)
 	defer session.Cleanup()
 	agent.UUID = session.UUID
 

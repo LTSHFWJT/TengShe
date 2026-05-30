@@ -1,4 +1,4 @@
-package bootstrap
+package agentbootstrap
 
 import (
 	"context"
@@ -11,17 +11,17 @@ import (
 	"TengShe/share/transport/stream"
 )
 
-type AgentSession struct {
+type Session struct {
 	Conn    net.Conn
 	UUID    string
 	Cleanup func()
 }
 
-func ConnectAgent(options *agentinitial.Options) *AgentSession {
+func Connect(options *agentinitial.Options) *Session {
 	share.GeneratePreAuthToken(options.Secret)
 	protocol.SetUpDownStream(options.Upstream, options.Downstream)
 
-	session := &AgentSession{
+	session := &Session{
 		Cleanup: func() {},
 	}
 
