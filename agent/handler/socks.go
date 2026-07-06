@@ -31,8 +31,89 @@ type Setting struct {
 
 const socksDataEnqueueTimeout = 30 * time.Second
 
+type socksDataReader struct {
+	ch  <-chan []byte
+	buf []byte
+}
+
 func newSocks() *Socks {
 	return new(Socks)
+}
+
+func newSocksDataReader(ch <-chan []byte) *socksDataReader {
+	return &socksDataReader{ch: ch}
+}
+
+func (reader *socksDataReader) read(n int) ([]byte, bool) {
+	if n <= 0 {
+		return nil, true
+	}
+
+	for len(reader.buf) < n {
+		data, ok := <-reader.ch
+		if !ok {
+			return nil, false
+		}
+		if len(data) == 0 {
+			continue
+		}
+		reader.buf = append(reader.buf, data...)
+	}
+
+	data := make([]byte, n)
+	copy(data, reader.buf[:n])
+	reader.buf = reader.buf[n:]
+	return data, true
+}
+
+func (reader *socksDataReader) drainBuffered() []byte {
+	if len(reader.buf) == 0 {
+		return nil
+	}
+
+	data := make([]byte, len(reader.buf))
+	copy(data, reader.buf)
+	reader.buf = nil
+	return data
+}
+
+func readSocksTarget(reader *socksDataReader, atyp byte) (string, string, bool) {
+	var host string
+
+	switch atyp {
+	case 0x01:
+		ip, ok := reader.read(4)
+		if !ok {
+			return "", "", false
+		}
+		host = net.IPv4(ip[0], ip[1], ip[2], ip[3]).String()
+	case 0x03:
+		hostLen, ok := reader.read(1)
+		if !ok {
+			return "", "", false
+		}
+		hostData, ok := reader.read(int(hostLen[0]))
+		if !ok {
+			return "", "", false
+		}
+		host = string(hostData)
+	case 0x04:
+		ip, ok := reader.read(16)
+		if !ok {
+			return "", "", false
+		}
+		host = net.IP(ip).String()
+	default:
+		return "", "", false
+	}
+
+	portData, ok := reader.read(2)
+	if !ok {
+		return "", "", false
+	}
+
+	port := utils.Int2Str(int(portData[0])<<8 | int(portData[1]))
+	return host, port, true
 }
 
 func (socks *Socks) start(mgr *manager.Manager) {
@@ -71,6 +152,7 @@ func (socks *Socks) start(mgr *manager.Manager) {
 
 func (socks *Socks) handleSocks(mgr *manager.Manager, dataChan chan []byte, seq uint64) {
 	setting := new(Setting)
+	reader := newSocksDataReader(dataChan)
 
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
 
@@ -92,31 +174,23 @@ func (socks *Socks) handleSocks(mgr *manager.Manager, dataChan chan []byte, seq 
 
 	for {
 		if !setting.isAuthed && setting.method == "" {
-			data, ok := <-dataChan
-			if !ok { //重连后原先引用失效，当chan释放后，若不捕捉，会无限循环
+			if !socks.checkMethod(setting, reader, seq) {
 				return
 			}
-			socks.checkMethod(setting, data, seq)
 		} else if !setting.isAuthed && setting.method == "PASSWORD" {
-			data, ok := <-dataChan
-			if !ok {
+			if !socks.auth(setting, reader, seq) {
 				return
 			}
-
-			socks.auth(setting, data, seq)
 		} else if setting.isAuthed && !setting.tcpConnected && !setting.isUDP {
-			data, ok := <-dataChan
-			if !ok {
+			if !socks.buildConn(mgr, setting, reader, seq) {
 				return
 			}
-
-			socks.buildConn(mgr, setting, data, seq)
 
 			if !setting.tcpConnected && !setting.isUDP {
 				return
 			}
 		} else if setting.isAuthed && setting.tcpConnected && !setting.isUDP { //All done!
-			go proxyC2STCP(setting.tcpConn, dataChan)
+			go proxyC2STCP(setting.tcpConn, dataChan, reader.drainBuffered())
 			proxyS2CTCP(setting.tcpConn, seq)
 			return
 		} else if setting.isAuthed && setting.isUDP && setting.success {
@@ -129,7 +203,7 @@ func (socks *Socks) handleSocks(mgr *manager.Manager, dataChan chan []byte, seq 
 	}
 }
 
-func (socks *Socks) checkMethod(setting *Setting, data []byte, seq uint64) {
+func (socks *Socks) checkMethod(setting *Setting, reader *socksDataReader, seq uint64) bool {
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
 
 	header := &protocol.Header{
@@ -158,58 +232,60 @@ func (socks *Socks) checkMethod(setting *Setting, data []byte, seq uint64) {
 		Data:    []byte{0x05, 0x02},
 	}
 
-	// avoid the scenario that we can get full socks protocol header (rarely happen,just in case)
-	defer func() {
-		if r := recover(); r != nil {
-			setting.method = "ILLEGAL"
-		}
-	}()
+	methodHeader, ok := reader.read(2)
+	if !ok {
+		return false
+	}
 
-	if data[0] == 0x05 {
-		nMethods := int(data[1])
+	if methodHeader[0] != 0x05 {
+		setting.method = "ILLEGAL"
+		return true
+	}
 
-		var supportMethodFinded, userPassFinded, noAuthFinded bool
+	methods, ok := reader.read(int(methodHeader[1]))
+	if !ok {
+		return false
+	}
 
-		for _, method := range data[2 : 2+nMethods] {
-			if method == 0x00 {
-				noAuthFinded = true
-				supportMethodFinded = true
-			} else if method == 0x02 {
-				userPassFinded = true
-				supportMethodFinded = true
-			}
-		}
+	var supportMethodFinded, userPassFinded, noAuthFinded bool
 
-		if !supportMethodFinded {
-			protocol.ConstructMessage(sMessage, header, failMess, false)
-			sMessage.SendMessage()
-			setting.method = "ILLEGAL"
-			return
-		}
-
-		if noAuthFinded && (socks.Username == "" && socks.Password == "") {
-			protocol.ConstructMessage(sMessage, header, noneMess, false)
-			sMessage.SendMessage()
-			setting.method = "NONE"
-			setting.isAuthed = true
-			return
-		} else if userPassFinded && (socks.Username != "" && socks.Password != "") {
-			protocol.ConstructMessage(sMessage, header, passMess, false)
-			sMessage.SendMessage()
-			setting.method = "PASSWORD"
-			return
-		} else {
-			protocol.ConstructMessage(sMessage, header, failMess, false)
-			sMessage.SendMessage()
-			setting.method = "ILLEGAL"
-			return
+	for _, method := range methods {
+		if method == 0x00 {
+			noAuthFinded = true
+			supportMethodFinded = true
+		} else if method == 0x02 {
+			userPassFinded = true
+			supportMethodFinded = true
 		}
 	}
-	// send nothing
+
+	if !supportMethodFinded {
+		protocol.ConstructMessage(sMessage, header, failMess, false)
+		sMessage.SendMessage()
+		setting.method = "ILLEGAL"
+		return true
+	}
+
+	if noAuthFinded && (socks.Username == "" && socks.Password == "") {
+		protocol.ConstructMessage(sMessage, header, noneMess, false)
+		sMessage.SendMessage()
+		setting.method = "NONE"
+		setting.isAuthed = true
+		return true
+	} else if userPassFinded && (socks.Username != "" && socks.Password != "") {
+		protocol.ConstructMessage(sMessage, header, passMess, false)
+		sMessage.SendMessage()
+		setting.method = "PASSWORD"
+		return true
+	}
+
+	protocol.ConstructMessage(sMessage, header, failMess, false)
+	sMessage.SendMessage()
 	setting.method = "ILLEGAL"
+	return true
 }
 
-func (socks *Socks) auth(setting *Setting, data []byte, seq uint64) {
+func (socks *Socks) auth(setting *Setting, reader *socksDataReader, seq uint64) bool {
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
 
 	header := &protocol.Header{
@@ -232,30 +308,50 @@ func (socks *Socks) auth(setting *Setting, data []byte, seq uint64) {
 		Data:    []byte{0x01, 0x00},
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			setting.isAuthed = false
-		}
-	}()
+	authHeader, ok := reader.read(2)
+	if !ok {
+		return false
+	}
 
-	ulen := int(data[1])
-	slen := int(data[2+ulen])
-	clientName := string(data[2 : 2+ulen])
-	clientPass := string(data[3+ulen : 3+ulen+slen])
+	if authHeader[0] != 0x01 {
+		protocol.ConstructMessage(sMessage, header, failMess, false)
+		sMessage.SendMessage()
+		setting.isAuthed = false
+		return true
+	}
+
+	username, ok := reader.read(int(authHeader[1]))
+	if !ok {
+		return false
+	}
+
+	passLen, ok := reader.read(1)
+	if !ok {
+		return false
+	}
+
+	password, ok := reader.read(int(passLen[0]))
+	if !ok {
+		return false
+	}
+
+	clientName := string(username)
+	clientPass := string(password)
 
 	if clientName != socks.Username || clientPass != socks.Password {
 		protocol.ConstructMessage(sMessage, header, failMess, false)
 		sMessage.SendMessage()
 		setting.isAuthed = false
-		return
+		return true
 	}
 	// username && password all fits!
 	protocol.ConstructMessage(sMessage, header, succMess, false)
 	sMessage.SendMessage()
 	setting.isAuthed = true
+	return true
 }
 
-func (socks *Socks) buildConn(mgr *manager.Manager, setting *Setting, data []byte, seq uint64) {
+func (socks *Socks) buildConn(mgr *manager.Manager, setting *Setting, reader *socksDataReader, seq uint64) bool {
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
 
 	header := &protocol.Header{
@@ -272,32 +368,33 @@ func (socks *Socks) buildConn(mgr *manager.Manager, setting *Setting, data []byt
 		Data:    []byte{0x05, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 	}
 
-	length := len(data)
+	requestHeader, ok := reader.read(4)
+	if !ok {
+		return false
+	}
 
-	if length <= 2 {
+	if requestHeader[0] != 0x05 {
 		protocol.ConstructMessage(sMessage, header, failMess, false)
 		sMessage.SendMessage()
-		return
+		return true
 	}
 
-	if data[0] == 0x05 {
-		switch data[1] {
-		case 0x01:
-			tcpConnect(mgr, setting, data, seq, length)
-		case 0x02:
-			tcpBind(mgr, setting, data, seq, length)
-		case 0x03:
-			udpAssociate(mgr, setting, data, seq, length)
-		default:
-			protocol.ConstructMessage(sMessage, header, failMess, false)
-			sMessage.SendMessage()
-		}
+	switch requestHeader[1] {
+	case 0x01:
+		return tcpConnect(mgr, setting, requestHeader[3], reader, seq)
+	case 0x02:
+		tcpBind(mgr, setting, requestHeader[3], reader, seq)
+	case 0x03:
+		return udpAssociate(mgr, setting, requestHeader[3], reader, seq)
+	default:
+		protocol.ConstructMessage(sMessage, header, failMess, false)
+		sMessage.SendMessage()
 	}
+	return true
 }
 
 // TCPConnect 如果是代理tcp
-func tcpConnect(mgr *manager.Manager, setting *Setting, data []byte, seq uint64, length int) {
-	var host string
+func tcpConnect(mgr *manager.Manager, setting *Setting, atyp byte, reader *socksDataReader, seq uint64) bool {
 	var err error
 
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
@@ -322,30 +419,17 @@ func tcpConnect(mgr *manager.Manager, setting *Setting, data []byte, seq uint64,
 		Data:    []byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			setting.tcpConnected = false
-		}
-	}()
-
-	switch data[3] {
-	case 0x01:
-		host = net.IPv4(data[4], data[5], data[6], data[7]).String()
-	case 0x03:
-		host = string(data[5 : length-2])
-	case 0x04:
-		host = net.IP{data[4], data[5], data[6], data[7],
-			data[8], data[9], data[10], data[11], data[12],
-			data[13], data[14], data[15], data[16], data[17],
-			data[18], data[19]}.String()
-	default:
+	if atyp != 0x01 && atyp != 0x03 && atyp != 0x04 {
 		protocol.ConstructMessage(sMessage, header, failMess, false)
 		sMessage.SendMessage()
 		setting.tcpConnected = false
-		return
+		return true
 	}
 
-	port := utils.Int2Str(int(data[length-2])<<8 | int(data[length-1]))
+	host, port, ok := readSocksTarget(reader, atyp)
+	if !ok {
+		return false
+	}
 
 	setting.tcpConn, err = net.DialTimeout("tcp", net.JoinHostPort(host, port), 10*time.Second)
 
@@ -353,7 +437,7 @@ func tcpConnect(mgr *manager.Manager, setting *Setting, data []byte, seq uint64,
 		protocol.ConstructMessage(sMessage, header, failMess, false)
 		sMessage.SendMessage()
 		setting.tcpConnected = false
-		return
+		return true
 	}
 	share.ConfigureTCPConn(setting.tcpConn)
 
@@ -368,15 +452,23 @@ func tcpConnect(mgr *manager.Manager, setting *Setting, data []byte, seq uint64,
 		protocol.ConstructMessage(sMessage, header, failMess, false)
 		sMessage.SendMessage()
 		setting.tcpConnected = false
-		return
+		return true
 	}
 
 	protocol.ConstructMessage(sMessage, header, succMess, false)
 	sMessage.SendMessage()
 	setting.tcpConnected = true
+	return true
 }
 
-func proxyC2STCP(conn net.Conn, dataChan chan []byte) {
+func proxyC2STCP(conn net.Conn, dataChan chan []byte, firstData []byte) {
+	if len(firstData) > 0 {
+		if err := share.WriteFull(conn, firstData); err != nil {
+			share.CloseQuietly(conn)
+			return
+		}
+	}
+
 	for {
 		data, ok := <-dataChan
 		if !ok { // no need to send FIN actively
@@ -422,7 +514,7 @@ func proxyS2CTCP(conn net.Conn, seq uint64) {
 }
 
 // TCPBind TCPBind方式
-func tcpBind(mgr *manager.Manager, setting *Setting, data []byte, seq uint64, length int) {
+func tcpBind(mgr *manager.Manager, setting *Setting, atyp byte, reader *socksDataReader, seq uint64) {
 	fmt.Println("Not ready") //limited use, add to Todo
 	setting.tcpConnected = false
 }
@@ -442,7 +534,7 @@ func (addr *socksLocalAddr) byteArray() []byte {
 
 // Based on rfc1928,agent must send message strictly
 // UDPAssociate UDPAssociate方式
-func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint64, length int) {
+func udpAssociate(mgr *manager.Manager, setting *Setting, atyp byte, reader *socksDataReader, seq uint64) bool {
 	setting.isUDP = true
 
 	sMessage := protocol.NewUpMsg(tsruntime.Component().Conn, tsruntime.Component().Secret, tsruntime.Component().UUID)
@@ -469,38 +561,24 @@ func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint6
 		Data:    []byte{0x05, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			setting.success = false
-		}
-	}()
-
-	var host string
-	switch data[3] {
-	case 0x01:
-		host = net.IPv4(data[4], data[5], data[6], data[7]).String()
-	case 0x03:
-		host = string(data[5 : length-2])
-	case 0x04:
-		host = net.IP{data[4], data[5], data[6], data[7],
-			data[8], data[9], data[10], data[11], data[12],
-			data[13], data[14], data[15], data[16], data[17],
-			data[18], data[19]}.String()
-	default:
+	if atyp != 0x01 && atyp != 0x03 && atyp != 0x04 {
 		protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 		sMessage.SendMessage()
 		setting.success = false
-		return
+		return true
 	}
 
-	port := utils.Int2Str(int(data[length-2])<<8 | int(data[length-1])) //先拿到客户端想要发送数据的ip:port地址
+	host, port, ok := readSocksTarget(reader, atyp)
+	if !ok {
+		return false
+	}
 
 	udpListenerAddr, err := net.ResolveUDPAddr("udp", "0.0.0.0:0")
 	if err != nil {
 		protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 		sMessage.SendMessage()
 		setting.success = false
-		return
+		return true
 	}
 
 	udpListener, err := net.ListenUDP("udp", udpListenerAddr)
@@ -508,7 +586,7 @@ func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint6
 		protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 		sMessage.SendMessage()
 		setting.success = false
-		return
+		return true
 	}
 
 	sourceAddr := net.JoinHostPort(host, port)
@@ -525,7 +603,7 @@ func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint6
 		protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 		sMessage.SendMessage()
 		setting.success = false
-		return
+		return true
 	}
 
 	mgrTask = &manager.SocksTask{
@@ -539,7 +617,7 @@ func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint6
 		protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 		sMessage.SendMessage()
 		setting.success = false
-		return
+		return true
 	}
 
 	readyChan := socksResult.ReadyChan
@@ -574,12 +652,13 @@ func udpAssociate(mgr *manager.Manager, setting *Setting, data []byte, seq uint6
 
 		setting.udpListener = udpListener
 		setting.success = true
-		return
+		return true
 	}
 
 	protocol.ConstructMessage(sMessage, dataHeader, failMess, false)
 	sMessage.SendMessage()
 	setting.success = false
+	return true
 }
 
 // proxyC2SUDP 代理C-->Sudp流量

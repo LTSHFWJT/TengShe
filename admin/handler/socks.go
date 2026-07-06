@@ -24,27 +24,57 @@ type Socks struct {
 const socksDataEnqueueTimeout = 30 * time.Second
 
 func NewSocks(param string) *Socks {
-	socks := new(Socks)
+	socks := &Socks{
+		Addr: "0.0.0.0",
+		Port: param,
+	}
 
-	slice := strings.SplitN(param, ":", 2)
+	if host, port, err := net.SplitHostPort(param); err == nil {
+		if host != "" {
+			socks.Addr = host
+		}
+		socks.Port = port
+		return socks
+	}
 
-	if len(slice) < 2 {
-		socks.Addr = "0.0.0.0"
-		socks.Port = param
-	} else {
-		socks.Addr = slice[0]
-		socks.Port = slice[1]
+	if strings.Count(param, ":") == 1 {
+		host, port, _ := strings.Cut(param, ":")
+		if host != "" {
+			socks.Addr = host
+		}
+		socks.Port = port
 	}
 
 	return socks
 }
 
+func (socks *Socks) listenAddr() string {
+	return net.JoinHostPort(socks.Addr, socks.Port)
+}
+
+func (socks *Socks) listenNetwork() string {
+	return socksListenNetwork(socks.Addr)
+}
+
+func socksListenNetwork(addr string) string {
+	if addr == "" || addr == "0.0.0.0" {
+		return "tcp4"
+	}
+
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return "tcp"
+	}
+
+	if ip.To4() != nil {
+		return "tcp4"
+	}
+
+	return "tcp6"
+}
+
 func (socks *Socks) LetSocks(mgr *manager.Manager, route string, uuid string) error {
-	var addr string
-
-	addr = fmt.Sprintf("%s:%s", socks.Addr, socks.Port)
-
-	listener, err := net.Listen("tcp", addr)
+	listener, err := net.Listen(socks.listenNetwork(), socks.listenAddr())
 	if err != nil {
 		return err
 	}
